@@ -1,18 +1,18 @@
 import i18n from "i18next";
 import { initReactI18next } from "react-i18next";
 
-// resources フォルダ内のすべての .ts ファイルを動的にインポート
-const modules = import.meta.glob<{ [key: string]: any }>("./resources/*.ts", { eager: true });
+// resources フォルダ内のすべての .json ファイルを動的にインポート
+const modules = import.meta.glob<{ default: any }>("./resources/*.json", { eager: true });
 
 const resources: Record<string, { translation: any }> = {};
 const supportedLngs: string[] = [];
 
 for (const path in modules) {
-  const match = path.match(/\/([^/]+)\.ts$/);
+  const match = path.match(/\/([^/]+)\.json$/);
   if (match) {
     const lang = match[1];
     const module = modules[path];
-    const translation = module[lang];
+    const translation = module.default;
     if (translation) {
       resources[lang] = { translation };
       supportedLngs.push(lang);
