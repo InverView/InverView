@@ -440,17 +440,27 @@ export const SettingsPage = (): JSX.Element => {
             <Label>{t("settings.displayLanguage")}</Label>
             <Dropdown
               aria-label={t("settings.displayLanguage")}
-              value={settings.language?.startsWith("ja") ? "ja" : "en"}
-              selectedOptions={[settings.language?.startsWith("ja") ? "ja" : "en"]}
+              value={(() => {
+                const currentLang = settings.language || "ja";
+                return t("settings.languageName", { lng: currentLang }) || currentLang;
+              })()}
+              selectedOptions={[settings.language || "ja"]}
               inlinePopup
               onOptionSelect={(_, data) => {
-                const next = data.optionValue === "ja" ? "ja" : "en";
-                setSetting("language", next);
-                void i18n.changeLanguage(next);
+                if (data.optionValue) {
+                  setSetting("language", data.optionValue);
+                  void i18n.changeLanguage(data.optionValue);
+                }
               }}
             >
-              <Option value="ja">{t("settings.japanese")}</Option>
-              <Option value="en">English</Option>
+              {(Array.isArray(i18n.options.supportedLngs)
+                ? i18n.options.supportedLngs.filter((lang) => lang !== "cimode")
+                : ["ja", "en"]
+              ).map((lang) => (
+                <Option key={lang} value={lang}>
+                  {t("settings.languageName", { lng: lang }) || lang}
+                </Option>
+              ))}
             </Dropdown>
           </div>
 

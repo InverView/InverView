@@ -289,6 +289,7 @@ export const ja = {
     aboutDescriptionLine2: "PWA と各種 Web API に対応し、軽量で快適な視聴体験を目指しています。",
   },
   settings: {
+    languageName: "日本語",
     title: "設定",
     generalSection: "一般",
     instanceUrlLabel: "インスタンスURL",
