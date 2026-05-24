@@ -289,6 +289,7 @@ export const en = {
     aboutDescriptionLine2: "It supports PWA and modern Web APIs for a lightweight viewing experience.",
   },
   settings: {
+    languageName: "English",
     title: "Settings",
     generalSection: "General",
     instanceUrlLabel: "Instance URL",
