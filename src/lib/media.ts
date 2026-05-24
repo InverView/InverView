@@ -6,6 +6,23 @@ const normalizeBase = (baseUrl: string): string => baseUrl.replace(/\/+$/, "");
 
 export const resolveMediaUrl = (url: string | undefined, baseUrl: string): string => {
   if (!url) return "";
+
+  if (baseUrl) {
+    const base = normalizeBase(baseUrl);
+    
+    // Google User Content / Ggpht (YouTube avatar) -> Invidious ggpht proxy
+    if (url.includes("yt3.ggpht.com/") || url.includes("yt3.googleusercontent.com/")) {
+      const path = url.replace(/^https?:\/\/[^/]+\//, "");
+      return `${base}/ggpht/${path}`;
+    }
+    
+    // Ytimg (YouTube video thumbnail) -> Invidious vi proxy
+    if (url.includes("i.ytimg.com/")) {
+      const path = url.replace(/^https?:\/\/i\.ytimg\.com\//, "");
+      return `${base}/${path}`;
+    }
+  }
+
   if (ABSOLUTE_URL_RE.test(url)) return url;
   if (url.startsWith("//")) return `https:${url}`;
   if (!baseUrl) return url;
@@ -19,11 +36,15 @@ export const resolveMediaUrl = (url: string | undefined, baseUrl: string): strin
 
 export const pickBestThumbnail = (thumbnails?: ThumbnailObject[]): ThumbnailObject | undefined => {
   if (!thumbnails || thumbnails.length === 0) return undefined;
-  let best = thumbnails[0];
+
+  const valid = thumbnails.filter((item) => typeof item?.url === "string" && item.url.trim().length > 0);
+  if (valid.length === 0) return undefined;
+
+  let best = valid[0];
   let bestArea = (best.width || 0) * (best.height || 0);
 
-  for (let i = 1; i < thumbnails.length; i += 1) {
-    const candidate = thumbnails[i];
+  for (let i = 1; i < valid.length; i += 1) {
+    const candidate = valid[i];
     const area = (candidate.width || 0) * (candidate.height || 0);
     if (area > bestArea) {
       best = candidate;

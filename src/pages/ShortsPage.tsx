@@ -16,6 +16,7 @@ import { queryKeys } from "../lib/queryKeys";
 import { useSettingsStore } from "../store/settingsStore";
 import { pickBestThumbnail } from "../lib/media";
 import type { VideoObject } from "../types/invidious";
+import { useTranslation } from "react-i18next";
 
 const useStyles = makeStyles({
   container: {
@@ -31,12 +32,12 @@ const useStyles = makeStyles({
     overflow: "hidden",
     "@media (min-width: 1024px)": {
       position: "fixed",
-      left: "var(--sidebar-width)",
-      top: "var(--header-height)",
+      left: 0,
+      top: 0,
       right: 0,
       bottom: 0,
-      height: "calc(100dvh - var(--header-height))",
-      width: "calc(100vw - var(--sidebar-width))",
+      height: "100dvh",
+      width: "100vw",
       backgroundColor: tokens.colorNeutralBackground2,
     },
   },
@@ -124,6 +125,7 @@ const MAX_HISTORY = 15;
 
 export const ShortsPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { videoId } = useParams();
   const [searchParams] = useSearchParams();
@@ -241,7 +243,7 @@ export const ShortsPage = (): JSX.Element => {
   if (!videoId && listQuery.isLoading) {
     return (
       <div className={styles.container} style={{ display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Spinner label="ショート動画を読み込み中..." />
+        <Spinner label={t("shorts.loading")} />
       </div>
     );
   }
@@ -290,15 +292,15 @@ export const ShortsPage = (): JSX.Element => {
             <div className={styles.actions}>
               <div className={styles.actionButton}>
                 <Button icon={<Heart24Regular />} shape="circular" size="large" appearance="subtle" />
-                <span>{video.likeCount || "高評価"}</span>
+                <span>{video.likeCount || t("shorts.likes")}</span>
               </div>
               <div className={styles.actionButton}>
                 <Button icon={<Comment24Regular />} shape="circular" size="large" appearance="subtle" />
-                <span>コメント</span>
+                <span>{t("shorts.comments")}</span>
               </div>
               <div className={styles.actionButton}>
                 <Button icon={<Share24Regular />} shape="circular" size="large" appearance="subtle" />
-                <span>共有</span>
+                <span>{t("shorts.share")}</span>
               </div>
             </div>
           </>
@@ -312,7 +314,7 @@ export const ShortsPage = (): JSX.Element => {
             size="large"
             disabled={currentIndex <= 0}
             onClick={goPrev}
-            aria-label="前の動画"
+            aria-label={t("shorts.previousVideo")}
           />
           <Button
             icon={<ChevronDown24Regular />}
@@ -320,7 +322,7 @@ export const ShortsPage = (): JSX.Element => {
             size="large"
             disabled={currentIndex >= shortsList.length - 1}
             onClick={goNext}
-            aria-label="次の動画"
+            aria-label={t("shorts.nextVideo")}
           />
         </div>
       </div>

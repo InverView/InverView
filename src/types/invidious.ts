@@ -42,6 +42,8 @@ export interface VideoObject {
   isVr360?: boolean;
   is3d?: boolean;
   hasCaptions?: boolean;
+  playlistId?: string;
+  playlistThumbnail?: string;
 }
 
 export interface ChannelObject {
@@ -143,6 +145,7 @@ export interface VideoDetails extends VideoObject {
   genre?: string;
   allowRatings?: boolean;
   subCount?: number;
+  commentCount?: number;
 }
 
 export interface HashtagObject {

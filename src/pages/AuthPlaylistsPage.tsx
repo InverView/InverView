@@ -15,6 +15,7 @@ import {
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
 import { LoadingGrid } from "../components/LoadingGrid";
@@ -45,10 +46,11 @@ const useStyles = makeStyles({
 
 export const AuthPlaylistsPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const token = useSettingsStore((state) => state.token);
   const [, setLocalVersion] = useState(0);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newPlaylistName, setNewPlaylistName] = useState("あとで見る");
+  const [newPlaylistName, setNewPlaylistName] = useState("");
   const [nameError, setNameError] = useState("");
   const restoreFocusTargetAttributes = useRestoreFocusTarget();
   const restoreFocusSourceAttributes = useRestoreFocusSource();
@@ -72,25 +74,25 @@ export const AuthPlaylistsPage = (): JSX.Element => {
   const submitCreatePlaylist = (): void => {
     const trimmed = newPlaylistName.trim();
     if (!trimmed) {
-      setNameError("プレイリスト名を入力してください。");
+      setNameError(t("playlists.inputRequired"));
       return;
     }
     createLocalPlaylist(trimmed);
     setLocalVersion((v) => v + 1);
-    setNewPlaylistName("あとで見る");
+    setNewPlaylistName("");
     closeCreateDrawer();
   };
 
   return (
     <div className={styles.container}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
-        <Text size={700} weight="bold">{token ? "自分のプレイリスト" : "ローカルプレイリスト"}</Text>
+        <Text size={700} weight="bold">{token ? t("playlists.myPlaylists") : t("playlists.localPlaylists")}</Text>
         <Button
           {...restoreFocusTargetAttributes}
           appearance="primary"
           onClick={() => setIsCreateOpen(true)}
         >
-          新規作成
+          {t("playlists.create")}
         </Button>
       </div>
       <OverlayDrawer
@@ -105,38 +107,38 @@ export const AuthPlaylistsPage = (): JSX.Element => {
             action={
               <Button
                 appearance="subtle"
-                aria-label="Close"
+                aria-label={t("common.close")}
                 icon={<Dismiss24Regular />}
                 onClick={closeCreateDrawer}
               />
             }
           >
-            新規プレイリスト
+            {t("playlists.newPlaylist")}
           </DrawerHeaderTitle>
         </DrawerHeader>
         <DrawerBody>
-          <Field label="プレイリスト名" validationMessage={nameError || undefined} validationState={nameError ? "error" : "none"}>
+          <Field label={t("playlists.nameLabel")} validationMessage={nameError || undefined} validationState={nameError ? "error" : "none"}>
             <Input
               value={newPlaylistName}
               onChange={(_, data) => {
                 setNewPlaylistName(data.value);
                 if (nameError) setNameError("");
               }}
-              placeholder="プレイリスト名を入力"
+              placeholder={t("playlists.namePlaceholder")}
             />
           </Field>
         </DrawerBody>
         <DrawerFooter>
-          <Button appearance="secondary" onClick={closeCreateDrawer}>キャンセル</Button>
-          <Button appearance="primary" onClick={submitCreatePlaylist}>作成</Button>
+          <Button appearance="secondary" onClick={closeCreateDrawer}>{t("common.cancel")}</Button>
+          <Button appearance="primary" onClick={submitCreatePlaylist}>{t("playlists.create")}</Button>
         </DrawerFooter>
       </OverlayDrawer>
       {token && playlistsQuery.isLoading ? <LoadingGrid /> : null}
       {token && playlistsQuery.isError ? (
-        <ErrorState title="取得失敗" message="/auth/playlists を取得できませんでした。" onRetry={() => playlistsQuery.refetch()} />
+        <ErrorState title={t("playlists.fetchErrorTitle")} message={t("playlists.fetchErrorMessage")} onRetry={() => playlistsQuery.refetch()} />
       ) : null}
       {(!token || (!playlistsQuery.isLoading && !playlistsQuery.isError)) && shownPlaylists.length === 0 ? (
-        <EmptyState title="プレイリストなし" description={token ? "保存済みプレイリストがありません。" : "まずは新規作成して動画を追加してください。"} />
+        <EmptyState title={t("playlists.emptyTitle")} description={token ? t("playlists.emptyAuth") : t("playlists.emptyLocal")} />
       ) : null}
       {shownPlaylists.length > 0 ? (
         <div className={styles.grid}>

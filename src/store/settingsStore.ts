@@ -7,6 +7,7 @@ export type { QualityMode, ThemeMode } from "../settings/types";
 
 export interface LegacySettingsState {
   apiBaseUrl: string;
+  apiProxyUrl: string;
   region: string;
   language: string;
   theme: "system" | "light" | "dark";
@@ -20,23 +21,38 @@ export interface LegacySettingsState {
   autoplayNextVideo: boolean;
   showCaptionsByDefault: boolean;
   preferOriginalTranslation: boolean;
+  hapticFeedback: boolean;
+  cinematicLighting: boolean;
   expandDescriptionByDefault: boolean;
   expandChaptersByDefault: boolean;
   expandCommentsByDefault: boolean;
   saveWatchHistory: boolean;
   showSearchSuggestions: boolean;
   useLenis: boolean;
+  sidebarCollapsed: boolean;
   quality: AppSettings["quality"];
+  audioTrackLanguage: string;
   audioOnly: boolean;
   dataSaver: boolean;
+  pictureInPictureEnabled: boolean;
+  autoEnterPipOnBackground: boolean;
+  backgroundPlaybackEnabled: boolean;
+  androidMediaNotificationEnabled: boolean;
   companionUrl: string;
   companionSecret: string;
+  youtubeJsProxyUrl: string;
+  youtubeAuthMode: AppSettings["youtubeAuthMode"];
+  youtubeCookie: string;
+  youtubeTvOauthCredentials: string;
   volume: number;
   muted: boolean;
   favoriteShortsChannelIds: string[];
+  hideShorts: boolean;
+  hideMobileNavLabels: boolean;
   setVolume: (value: number) => void;
   setMuted: (value: boolean) => void;
   setApiBaseUrl: (value: string) => void;
+  setApiProxyUrl: (value: string) => void;
   setRegion: (value: string) => void;
   setLanguage: (value: string) => void;
   setTheme: (value: "system" | "light" | "dark") => void;
@@ -52,11 +68,15 @@ export interface LegacySettingsState {
   setCompanionUrl: (value: string) => void;
   setCompanionSecret: (value: string) => void;
   setFavoriteShortsChannelIds: (value: string[]) => void;
+  setHideShorts: (value: boolean) => void;
+  setHideMobileNavLabels: (value: boolean) => void;
   setUseLenis: (value: boolean) => void;
+  setSidebarCollapsed: (value: boolean) => void;
 }
 
 const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<AppSettings>) => void): LegacySettingsState => ({
   apiBaseUrl: settings.instanceUrl,
+  apiProxyUrl: settings.apiProxyUrl,
   region: settings.region,
   language: settings.language,
   theme: settings.theme === "amoled" ? "dark" : settings.theme,
@@ -70,23 +90,38 @@ const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<Ap
   autoplayNextVideo: settings.autoplayNextVideo,
   showCaptionsByDefault: settings.showCaptionsByDefault,
   preferOriginalTranslation: settings.preferOriginalTranslation,
+  hapticFeedback: settings.hapticFeedback,
+  cinematicLighting: settings.cinematicLighting,
   expandDescriptionByDefault: settings.expandDescriptionByDefault,
   expandChaptersByDefault: settings.expandChaptersByDefault,
   expandCommentsByDefault: settings.expandCommentsByDefault,
   saveWatchHistory: settings.saveWatchHistory,
   showSearchSuggestions: settings.showSearchSuggestions,
   useLenis: settings.useLenis,
+  sidebarCollapsed: settings.sidebarCollapsed,
   quality: settings.quality,
+  audioTrackLanguage: settings.audioTrackLanguage,
   audioOnly: settings.audioOnly,
   dataSaver: settings.dataSaver,
+  pictureInPictureEnabled: settings.pictureInPictureEnabled,
+  autoEnterPipOnBackground: settings.autoEnterPipOnBackground,
+  backgroundPlaybackEnabled: settings.backgroundPlaybackEnabled,
+  androidMediaNotificationEnabled: settings.androidMediaNotificationEnabled,
   companionUrl: settings.companionUrl,
   companionSecret: settings.companionSecret,
+  youtubeJsProxyUrl: settings.youtubeJsProxyUrl,
+  youtubeAuthMode: settings.youtubeAuthMode,
+  youtubeCookie: settings.youtubeCookie,
+  youtubeTvOauthCredentials: settings.youtubeTvOauthCredentials,
   volume: settings.volume,
   muted: settings.muted,
   favoriteShortsChannelIds: settings.favoriteShortsChannelIds,
+  hideShorts: settings.hideShorts,
+  hideMobileNavLabels: settings.hideMobileNavLabels,
   setVolume: (value) => updateSettings({ volume: value }),
   setMuted: (value) => updateSettings({ muted: value }),
   setApiBaseUrl: (value) => updateSettings({ instanceUrl: value }),
+  setApiProxyUrl: (value) => updateSettings({ apiProxyUrl: value }),
   setRegion: (value) => updateSettings({ region: value || "JP" }),
   setLanguage: (value) => updateSettings({ language: value || "ja" }),
   setTheme: (value) => updateSettings({ theme: value }),
@@ -102,7 +137,10 @@ const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<Ap
   setCompanionUrl: (value) => updateSettings({ companionUrl: value }),
   setCompanionSecret: (value) => updateSettings({ companionSecret: value }),
   setFavoriteShortsChannelIds: (value) => updateSettings({ favoriteShortsChannelIds: value }),
+  setHideShorts: (value) => updateSettings({ hideShorts: value }),
+  setHideMobileNavLabels: (value) => updateSettings({ hideMobileNavLabels: value }),
   setUseLenis: (value) => updateSettings({ useLenis: value }),
+  setSidebarCollapsed: (value) => updateSettings({ sidebarCollapsed: value }),
 });
 
 

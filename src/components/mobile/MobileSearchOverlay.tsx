@@ -10,6 +10,7 @@ import {
   makeStyles,
   tokens,
   shorthands,
+  mergeClasses,
 } from "@fluentui/react-components";
 import { Dismiss24Regular, Search24Regular } from "@fluentui/react-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -19,6 +20,9 @@ import { getSearchSuggestions } from "../../lib/invidiousClient";
 import { queryKeys } from "../../lib/queryKeys";
 import { addRecentSearch, getRecentSearches } from "../../lib/recentSearch";
 import { useSettingsStore } from "../../store/settingsStore";
+import { useTranslation } from "react-i18next";
+
+const SUGGESTION_QUERY_GC_TIME_MS = 60_000;
 
 interface MobileSearchOverlayProps {
   isOpen: boolean;
@@ -36,6 +40,31 @@ const useStyles = makeStyles({
     borderRadius: 0,
     display: "flex",
     flexDirection: "column",
+    willChange: "transform, opacity",
+    animationName: {
+      from: {
+        transform: "translate3d(0, 100%, 0)",
+      },
+      to: {
+        transform: "translate3d(0, 0, 0)",
+      },
+    },
+    animationDuration: "220ms",
+    animationTimingFunction: "cubic-bezier(0.32, 0.94, 0.6, 1)",
+    animationFillMode: "both",
+  },
+  surfaceExiting: {
+    animationName: {
+      from: {
+        transform: "translate3d(0, 0, 0)",
+      },
+      to: {
+        transform: "translate3d(0, 100%, 0)",
+      },
+    },
+    animationDuration: "220ms",
+    animationTimingFunction: "cubic-bezier(0.3, 0.06, 0.15, 1)",
+    animationFillMode: "both",
   },
   header: {
     display: "flex",
@@ -85,6 +114,7 @@ const useStyles = makeStyles({
 
 export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { search } = useLocation();
   const currentQ = useMemo(() => new URLSearchParams(search).get("q") ?? "", [search]);
@@ -92,13 +122,37 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
   const [debouncedQ, setDebouncedQ] = useState(currentQ);
   const [recent, setRecent] = useState<string[]>([]);
   const showSearchSuggestions = useSettingsStore((state) => state.showSearchSuggestions);
+  const [shouldRender, setShouldRender] = useState(isOpen);
+  const [isExiting, setIsExiting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setShouldRender(true);
+      setIsExiting(false);
+    } else {
+      setIsExiting(true);
+      const timer = setTimeout(() => {
+        setShouldRender(false);
+        setIsExiting(false);
+      }, 220);
+      return () => clearTimeout(timer);
+    }
+  }, [isOpen]);
 
   const handleClose = (): void => {
-    if (window.history.state?.mobileSearch) {
-      window.history.back();
-      return;
-    }
-    onClose();
+    if (isExiting) return;
+
+    // 1. まず退場アニメーションを開始！
+    setIsExiting(true);
+
+    // 2. アニメーション完了後に安全にクローズ処理を実行！
+    setTimeout(() => {
+      if (window.history.state?.mobileSearch) {
+        window.history.back();
+      } else {
+        onClose();
+      }
+    }, 220);
   };
 
   useEffect(() => {
@@ -114,7 +168,15 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
 
     const state = { mobileSearch: true };
     window.history.pushState(state, "");
-    const handlePopState = (): void => onClose();
+    
+    const handlePopState = (): void => {
+      // 物理戻るボタン時も確実に退場アニメーションを再生！
+      setIsExiting(true);
+      setTimeout(() => {
+        onClose();
+      }, 220);
+    };
+
     window.addEventListener("popstate", handlePopState);
     return () => window.removeEventListener("popstate", handlePopState);
   }, [isOpen, onClose]);
@@ -125,11 +187,11 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
   }, [q]);
 
   const suggestionsQuery = useQuery({
-    queryKey: queryKeys.suggestions(`mobile-${debouncedQ}`),
+    queryKey: queryKeys.suggestions(debouncedQ),
     queryFn: ({ signal }) => getSearchSuggestions(debouncedQ, signal),
     enabled: isOpen && showSearchSuggestions && debouncedQ.length > 1,
     staleTime: 1000 * 45,
-    gcTime: 1000 * 60 * 5,
+    gcTime: SUGGESTION_QUERY_GC_TIME_MS,
   });
 
   const suggestions = useMemo(() => {
@@ -142,6 +204,15 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
   const submit = (value?: string): void => {
     const text = (value ?? q).trim();
     if (!text) return;
+
+    if (typeof window !== "undefined" && navigator.vibrate) {
+      try {
+        navigator.vibrate(12);
+      } catch {
+        // Ignore browser security restrictions
+      }
+    }
+
     addRecentSearch(text);
     onClose();
     navigate(`/search?q=${encodeURIComponent(text)}`);
@@ -150,14 +221,17 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
   const listItems = showSearchSuggestions && suggestions.length > 0 ? suggestions : recent;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(_, data) => !data.open && handleClose()}>
-      <DialogSurface className={styles.surface}>
+    <Dialog open={shouldRender} onOpenChange={(_, data) => !data.open && handleClose()}>
+      <DialogSurface
+        className={mergeClasses(styles.surface, isExiting && styles.surfaceExiting)}
+        data-mobile-search-surface="true"
+      >
         <div className={styles.header}>
           <Button
             appearance="subtle"
             icon={<Dismiss24Regular />}
             onClick={handleClose}
-            aria-label="閉じる"
+            aria-label={t("mobile.close")}
           />
           <form
             className={styles.form}
@@ -170,7 +244,7 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
               autoFocus
               className={styles.input}
               value={q}
-              placeholder="検索キーワード"
+              placeholder={t("search.keywordPlaceholder")}
               onChange={(e) => setQ(e.target.value)}
               appearance="outline"
             />
@@ -178,7 +252,7 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
               type="submit"
               appearance="primary"
               icon={<Search24Regular />}
-              aria-label="検索"
+              aria-label={t("mobile.search")}
             />
           </form>
         </div>
@@ -187,7 +261,7 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
             {suggestionsQuery.isFetching && (
               <div className={styles.loading}>
                 <Spinner size="tiny" />
-                <Text>候補を取得中...</Text>
+                <Text>{t("mobile.loadingSuggestions")}</Text>
               </div>
             )}
             <div className={styles.list}>
@@ -203,7 +277,7 @@ export const MobileSearchOverlay = ({ isOpen, onClose }: MobileSearchOverlayProp
             </div>
             {!suggestionsQuery.isFetching && listItems.length === 0 && q.trim().length > 0 && (
               <div style={{ marginTop: "12px", color: tokens.colorNeutralForeground3, fontSize: "14px" }}>
-                Enter で「{q.trim()}」を検索できます
+                {t("mobile.enterToSearch", { query: q.trim() })}
               </div>
             )}
           </DialogContent>

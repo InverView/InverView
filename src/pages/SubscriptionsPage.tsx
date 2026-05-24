@@ -3,17 +3,23 @@ import {
   makeStyles,
   Button,
   Spinner,
+  Tooltip,
 } from "@fluentui/react-components";
+import { Star16Filled, Star16Regular } from "@fluentui/react-icons";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router-dom";
 import { ChannelCard } from "../components/ChannelCard";
+import { ChannelCardSkeleton } from "../components/ChannelCardSkeleton";
 import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingGrid } from "../components/LoadingGrid";
-import { addSubscription, getAuthSubscriptions, removeSubscription } from "../lib/invidiousClient";
+import { PageTitle } from "../components/PageTitle";
+import { QueryStateView } from "../components/QueryStateView";
+import { VideoGrid } from "../components/VideoGrid";
+import { getAuthSubscriptions, removeSubscription } from "../lib/invidiousClient";
 import { getLocalSubscriptionIds, removeLocalSubscription } from "../lib/localSubscriptions";
 import { getCurrentLocalUser } from "../lib/localUsers";
 import { queryKeys } from "../lib/queryKeys";
-import { getChannel } from "../lib/invidiousClient";
+import { getAuthFeed, getChannel } from "../lib/invidiousClient";
 import { useSettingsStore } from "../store/settingsStore";
 import type { ChannelObject } from "../types/invidious";
 
@@ -32,20 +38,30 @@ const useStyles = makeStyles({
     },
   },
   channelItem: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "8px",
+    minWidth: 0,
   },
-  actions: {
+  viewSwitcher: {
     display: "flex",
     gap: "8px",
+    flexWrap: "wrap",
+    alignItems: "center",
   },
 });
 
 export const SubscriptionsPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
+  const [searchParams, setSearchParams] = useSearchParams();
   const token = useSettingsStore((state) => state.token);
   const localUser = getCurrentLocalUser();
+  const view = searchParams.get("view");
+  const isListView = view === "list";
+
+  const feedQuery = useQuery({
+    queryKey: queryKeys.authFeed(1),
+    queryFn: ({ signal }) => getAuthFeed({ page: 1 }, signal),
+    enabled: !!token && !isListView,
+  });
 
   const subscriptionsQuery = useQuery({
     queryKey: queryKeys.authSubscriptions,
@@ -71,11 +87,6 @@ export const SubscriptionsPage = (): JSX.Element => {
     enabled: !token,
   });
 
-  const addMutation = useMutation({
-    mutationFn: (ucid: string) => addSubscription(ucid),
-    onSuccess: () => subscriptionsQuery.refetch(),
-  });
-
   const removeMutation = useMutation({
     mutationFn: (ucid: string) => removeSubscription(ucid),
     onSuccess: () => subscriptionsQuery.refetch(),
@@ -92,60 +103,114 @@ export const SubscriptionsPage = (): JSX.Element => {
   });
 
   const subscriptions = token ? subscriptionsQuery.data ?? [] : localSubscriptionsQuery.data ?? [];
-  const normalizedSubscriptions: ChannelObject[] = subscriptions.map((channel) =>
-    "type" in channel ? (channel as ChannelObject) : ({ ...channel, type: "channel" } as ChannelObject),
-  );
+  const normalizedSubscriptions: ChannelObject[] = subscriptions.map((channel) => {
+    const raw = "type" in channel ? (channel as ChannelObject) : ({ ...channel, type: "channel" } as ChannelObject);
+    const authorId = raw.authorId || raw.authorUrl?.split("/channel/")[1]?.split("/")[0] || "";
+    return { ...raw, authorId };
+  });
+  const feedVideos = feedQuery.data?.videos ?? [];
   const isLoading = token ? subscriptionsQuery.isLoading : localSubscriptionsQuery.isLoading;
   const isError = token ? subscriptionsQuery.isError : localSubscriptionsQuery.isError;
   const isLocalEmpty = !token && (localSubscriptionIdsQuery.data?.length ?? 0) === 0;
+  const isFetching = token
+    ? (isListView ? subscriptionsQuery.isFetching : feedQuery.isFetching)
+    : (isListView ? localSubscriptionsQuery.isFetching : false);
 
   return (
     <div className={styles.container}>
-      <Text size={700} weight="bold">登録チャンネル</Text>
-      {!token ? <Text size={200}>現在のローカルユーザー: {localUser.name}</Text> : null}
-
-      {isLoading ? <LoadingGrid /> : null}
-      {isError ? (
-        <ErrorState
-          title="登録チャンネル取得失敗"
-          message={token ? "/auth/subscriptions を取得できませんでした。" : "ローカル登録チャンネルの取得に失敗しました。"}
-          onRetry={() => (token ? subscriptionsQuery.refetch() : localSubscriptionsQuery.refetch())}
-        />
-      ) : null}
-      {!isLoading && !isError && (isLocalEmpty || normalizedSubscriptions.length === 0) ? (
-        <EmptyState
-          title="登録チャンネルがありません"
-          description={token ? "Invidious 側でチャンネル登録を行ってください。" : "チャンネルページまたは視聴ページからローカル登録してください。"}
-        />
-      ) : null}
-
-      <div className={styles.grid}>
-        {normalizedSubscriptions.map((channel) => (
-          <div key={channel.authorId} className={styles.channelItem}>
-            <ChannelCard channel={channel} />
-            <div className={styles.actions}>
-              <Button
-                size="small"
-                appearance="outline"
-                disabled={token ? addMutation.isPending : true}
-                onClick={() => token && addMutation.mutate(channel.authorId)}
-                icon={token && addMutation.isPending ? <Spinner size="tiny" /> : undefined}
-              >
-                登録
-              </Button>
-              <Button
-                size="small"
-                appearance="outline"
-                disabled={token ? removeMutation.isPending : removeLocalMutation.isPending}
-                onClick={() => (token ? removeMutation.mutate(channel.authorId) : removeLocalMutation.mutate(channel.authorId))}
-                icon={token ? (removeMutation.isPending ? <Spinner size="tiny" /> : undefined) : (removeLocalMutation.isPending ? <Spinner size="tiny" /> : undefined)}
-              >
-                登録解除
-              </Button>
-            </div>
-          </div>
-        ))}
+      <PageTitle title={isListView ? t("subscriptions.title") : t("feed.title")} />
+      <div className={styles.viewSwitcher}>
+        <Button
+          size="small"
+          appearance={!isListView ? "primary" : "outline"}
+          onClick={() => setSearchParams(new URLSearchParams())}
+        >
+          {t("feed.title")}
+        </Button>
+        <Button
+          size="small"
+          appearance={isListView ? "primary" : "outline"}
+          onClick={() => setSearchParams({ view: "list" })}
+        >
+          {t("subscriptions.title")}
+        </Button>
+        {isFetching && <Spinner size="tiny" style={{ marginLeft: "8px" }} />}
       </div>
+
+      {!isListView ? (
+        <>
+          {!token ? <EmptyState title={t("feed.loginRequiredTitle")} description={t("feed.loginRequiredDescription")} /> : null}
+          {token ? (
+            <QueryStateView
+              isLoading={feedQuery.isLoading}
+              isError={feedQuery.isError}
+              isEmpty={feedVideos.length === 0}
+              errorTitle={t("feed.fetchErrorTitle")}
+              errorMessage={t("feed.fetchErrorMessage")}
+              emptyTitle={t("feed.emptyTitle")}
+              emptyDescription={t("feed.emptyDescription")}
+              onRetry={() => feedQuery.refetch()}
+            >
+              <VideoGrid items={feedVideos} />
+            </QueryStateView>
+          ) : null}
+        </>
+      ) : (
+        <>
+          {!token ? <Text size={200}>{t("subscriptions.currentLocalUser", { name: localUser.name })}</Text> : null}
+          {isLoading ? (
+            <div className={styles.grid}>
+              {Array.from({ length: 8 }).map((_, index) => (
+                <ChannelCardSkeleton key={index} />
+              ))}
+            </div>
+          ) : (
+            <QueryStateView
+              isLoading={false}
+              isError={isError}
+              isEmpty={isLocalEmpty || normalizedSubscriptions.length === 0}
+              errorTitle={t("subscriptions.fetchErrorTitle")}
+              errorMessage={token ? t("subscriptions.fetchErrorAuth") : t("subscriptions.fetchErrorLocal")}
+              emptyTitle={t("subscriptions.emptyTitle")}
+              emptyDescription={token ? t("subscriptions.emptyAuth") : t("subscriptions.emptyLocal")}
+              onRetry={() => (token ? subscriptionsQuery.refetch() : localSubscriptionsQuery.refetch())}
+            >
+              <div className={styles.grid}>
+                {normalizedSubscriptions.map((channel) => (
+                  <div key={channel.authorId} className={styles.channelItem}>
+                    <ChannelCard
+                      channel={channel}
+                      action={(
+                        <Tooltip content={t("subscriptions.unsubscribe")} relationship="description">
+                          <Button
+                            size="small"
+                            appearance="subtle"
+                            aria-label={t("subscriptions.unsubscribe")}
+                            icon={
+                              token
+                                ? (removeMutation.isPending ? <Spinner size="tiny" /> : <Star16Filled />)
+                                : (removeLocalMutation.isPending ? <Spinner size="tiny" /> : <Star16Regular />)
+                            }
+                            disabled={token ? removeMutation.isPending : removeLocalMutation.isPending}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (token) {
+                                removeMutation.mutate(channel.authorId);
+                                return;
+                              }
+                              removeLocalMutation.mutate(channel.authorId);
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+            </QueryStateView>
+          )}
+        </>
+      )}
     </div>
   );
 };

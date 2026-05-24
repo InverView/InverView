@@ -5,24 +5,46 @@ import {
   Button,
   Input,
   Checkbox,
-  Combobox,
-  Option,
+  Dialog,
+  DialogSurface,
+  DialogTitle,
+  DialogContent,
+  DialogBody,
+  DialogActions,
 } from "@fluentui/react-components";
 import { Filter24Regular } from "@fluentui/react-icons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingGrid } from "../components/LoadingGrid";
-import { MobileFilterSheet, type SearchFilterValues } from "../components/mobile/MobileFilterSheet";
+import type { MobileFilterSheet, SearchFilterValues } from "../components/mobile/MobileFilterSheet";
+import { QueryStateView } from "../components/QueryStateView";
 import { VideoGrid } from "../components/VideoGrid";
 import { searchVideos, type SearchVideosParams } from "../lib/invidiousClient";
 import { queryKeys } from "../lib/queryKeys";
 import { addRecentSearch } from "../lib/recentSearch";
 import { useSettingsStore } from "../store/settingsStore";
 import { useEffect, useMemo, useState } from "react";
+import { LabeledCombobox, type SelectOption } from "../components/LabeledCombobox";
 
 const featureOptions = ["hd", "subtitles", "4k", "live", "360", "hdr", "vr180"] as const;
+const typeOptions: SelectOption[] = [
+  { value: "all", label: "all" },
+  { value: "video", label: "video" },
+  { value: "playlist", label: "playlist" },
+  { value: "channel", label: "channel" },
+];
+const sortOptions: SelectOption[] = [
+  { value: "relevance", label: "relevance" },
+  { value: "views", label: "views" },
+];
+const durationOptions: SelectOption[] = [
+  { value: "", label: "all" },
+  { value: "short", label: "short" },
+  { value: "medium", label: "medium" },
+  { value: "long", label: "long" },
+];
+const regionOptions: SelectOption[] = ["JP", "US", "KR", "TW", "DE"].map((r) => ({ value: r, label: r }));
 
 const buildFiltersFromQuery = (query: URLSearchParams, fallbackRegion: string): SearchFilterValues => ({
   type: (query.get("type") as SearchFilterValues["type"]) || "all",
@@ -43,50 +65,37 @@ const useStyles = makeStyles({
     gap: "8px",
     alignItems: "stretch",
   },
-  filterGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, 1fr)",
-    gap: "12px",
-    "@media (min-width: 900px)": {
-      gridTemplateColumns: "repeat(5, 1fr)",
-    },
-  },
-  filterField: {
+  dialogContent: {
     display: "flex",
     flexDirection: "column",
-    gap: "4px",
+    gap: "16px",
+    paddingTop: "16px",
+    paddingBottom: "16px",
+  },
+  filterGrid: {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "12px",
+  },
+  filterField: {
+    minWidth: 0,
   },
   filterSection: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "8px",
+    marginTop: "8px",
   },
   featuresRow: {
     display: "flex",
-    gap: "16px",
+    gap: "12px",
     flexWrap: "wrap",
-    padding: "8px 0",
-  },
-  mobileFilterBtn: {
-    "@media (min-width: 1024px)": {
-      display: "none",
-    },
-  },
-  desktopFilterWrap: {
-    display: "none",
-    backgroundColor: tokens.colorNeutralBackground2,
-    padding: "16px",
-    borderRadius: tokens.borderRadiusMedium,
-    "@media (min-width: 1024px)": {
-      display: "flex",
-      flexDirection: "column",
-      gap: "16px",
-    },
   },
 });
 
 export const SearchPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
   const q = searchParams.get("q") ?? "";
   const defaultRegion = useSettingsStore((state) => state.region);
@@ -152,6 +161,15 @@ export const SearchPage = (): JSX.Element => {
     placeholderData: keepPreviousData,
   });
 
+  const orderedSearchResults = useMemo(() => {
+    const items = searchQuery.data ?? [];
+    const firstChannelIndex = items.findIndex((item) => item.type === "channel");
+    if (firstChannelIndex <= 0) return items;
+
+    const firstChannel = items[firstChannelIndex];
+    return [firstChannel, ...items.slice(0, firstChannelIndex), ...items.slice(firstChannelIndex + 1)];
+  }, [searchQuery.data]);
+
   const onFeatureChange = (feature: string, checked: boolean) => {
     const nextFeatures = checked
       ? [...filters.features, feature]
@@ -161,7 +179,7 @@ export const SearchPage = (): JSX.Element => {
 
   return (
     <div className={styles.container}>
-      <Text size={700} weight="bold">検索</Text>
+      <Text size={700} weight="bold">{t("search.title")}</Text>
 
       <form
         className={styles.searchForm}
@@ -179,112 +197,106 @@ export const SearchPage = (): JSX.Element => {
           style={{ flexGrow: 1 }}
           value={inputValue}
           onChange={(e, data) => setInputValue(data.value)}
-          placeholder="検索キーワード"
+          placeholder={t("search.keywordPlaceholder")}
           appearance="outline"
         />
         <Button type="submit" appearance="primary">
-          検索
+          {t("search.title")}
         </Button>
         <Button
-          className={styles.mobileFilterBtn}
           icon={<Filter24Regular />}
           onClick={() => setIsFilterOpen(true)}
-          aria-label="フィルター"
+          aria-label={t("search.filterLabel")}
         />
       </form>
 
-      <div className={styles.desktopFilterWrap}>
-        <div className={styles.filterGrid}>
-          <div className={styles.filterField}>
-            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Type</Text>
-            <Combobox
-              selectedOptions={[filters.type]}
-              value={filters.type}
-              onOptionSelect={(_, data) => applyFilters({ ...filters, type: data.optionValue as any })}
-            >
-              <Option value="all">all</Option>
-              <Option value="video">video</Option>
-              <Option value="playlist">playlist</Option>
-              <Option value="channel">channel</Option>
-            </Combobox>
-          </div>
+      <Dialog open={isFilterOpen} onOpenChange={(e, data) => setIsFilterOpen(data.open)}>
+        <DialogSurface>
+          <DialogBody>
+            <DialogTitle>{t("search.filterLabel")}</DialogTitle>
+            <DialogContent className={styles.dialogContent}>
+              <div className={styles.filterGrid}>
+                <div className={styles.filterField}>
+                  <LabeledCombobox
+                    label={t("search.type")}
+                    value={filters.type}
+                    options={typeOptions}
+                    onChange={(value) => applyFilters({ ...filters, type: value as SearchFilterValues["type"] })}
+                  />
+                </div>
 
-          <div className={styles.filterField}>
-            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Sort By</Text>
-            <Combobox
-              selectedOptions={[filters.sortBy]}
-              value={filters.sortBy}
-              onOptionSelect={(_, data) => applyFilters({ ...filters, sortBy: data.optionValue as any })}
-            >
-              <Option value="relevance">relevance</Option>
-              <Option value="views">views</Option>
-            </Combobox>
-          </div>
+                <div className={styles.filterField}>
+                  <LabeledCombobox
+                    label={t("search.sortBy")}
+                    value={filters.sortBy}
+                    options={sortOptions}
+                    onChange={(value) => applyFilters({ ...filters, sortBy: value as SearchFilterValues["sortBy"] })}
+                  />
+                </div>
 
-          <div className={styles.filterField}>
-            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Duration</Text>
-            <Combobox
-              selectedOptions={[filters.duration]}
-              value={filters.duration || "all"}
-              onOptionSelect={(_, data) => applyFilters({ ...filters, duration: data.optionValue as any })}
-            >
-              <Option value="">all</Option>
-              <Option value="short">short</Option>
-              <Option value="medium">medium</Option>
-              <Option value="long">long</Option>
-            </Combobox>
-          </div>
+                <div className={styles.filterField}>
+                  <LabeledCombobox
+                    label={t("search.duration")}
+                    value={filters.duration}
+                    options={durationOptions}
+                    onChange={(value) => applyFilters({ ...filters, duration: value as SearchFilterValues["duration"] })}
+                  />
+                </div>
 
-          <div className={styles.filterField}>
-            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Region</Text>
-            <Combobox
-              selectedOptions={[filters.region]}
-              value={filters.region}
-              onOptionSelect={(_, data) => applyFilters({ ...filters, region: data.optionValue as any })}
-            >
-              {["JP", "US", "KR", "TW", "DE"].map((r) => (
-                <Option key={r} value={r}>{r}</Option>
-              ))}
-            </Combobox>
-          </div>
+                <div className={styles.filterField}>
+                  <LabeledCombobox
+                    label={t("search.region")}
+                    value={filters.region}
+                    options={regionOptions}
+                    onChange={(value) => applyFilters({ ...filters, region: value })}
+                  />
+                </div>
+              </div>
 
-          <div style={{ alignSelf: "end" }}>
-            <Button appearance="outline" onClick={resetFilters} style={{ width: "100%" }}>リセット</Button>
-          </div>
-        </div>
+              <div className={styles.filterSection}>
+                <Text size={200} style={{ color: tokens.colorNeutralForeground3, fontWeight: tokens.fontWeightSemibold }}>
+                  {t("search.features")}
+                </Text>
+                <div className={styles.featuresRow}>
+                  {featureOptions.map((feature) => (
+                    <Checkbox
+                      key={feature}
+                      label={feature}
+                      checked={filters.features.includes(feature)}
+                      onChange={(e, data) => onFeatureChange(feature, !!data.checked)}
+                    />
+                  ))}
+                </div>
+              </div>
+            </DialogContent>
 
-        <div className={styles.filterSection}>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>Features</Text>
-          <div className={styles.featuresRow}>
-            {featureOptions.map((feature) => (
-              <Checkbox
-                key={feature}
-                label={feature}
-                checked={filters.features.includes(feature)}
-                onChange={(e, data) => onFeatureChange(feature, !!data.checked)}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
+            <DialogActions>
+              <Button appearance="outline" onClick={resetFilters}>
+                {t("search.reset")}
+              </Button>
+              <Button appearance="primary" onClick={() => setIsFilterOpen(false)}>
+                {t("app.close") || "Close"}
+              </Button>
+            </DialogActions>
+          </DialogBody>
+        </DialogSurface>
+      </Dialog>
 
-      <MobileFilterSheet
-        isOpen={isFilterOpen}
-        onClose={() => setIsFilterOpen(false)}
-        value={filters}
-        onApply={applyFilters}
-        onReset={resetFilters}
-      />
-
-      {!q ? <EmptyState title="キーワードを入力してください" description="検索バーからクエリを入力すると結果を表示します。" /> : null}
-      {q && searchQuery.isLoading ? <LoadingGrid /> : null}
-      {q && searchQuery.isError ? (
-        <ErrorState title="検索失敗" message="検索結果を取得できませんでした。" onRetry={() => searchQuery.refetch()} />
+      {!q ? <EmptyState title={t("search.enterKeywordTitle")} description={t("search.enterKeywordDescription")} /> : null}
+      {q ? (
+        <QueryStateView
+          isLoading={searchQuery.isLoading}
+          isError={searchQuery.isError}
+          isEmpty={(searchQuery.data?.length ?? 0) === 0}
+          errorTitle={t("search.fetchErrorTitle")}
+          errorMessage={t("search.fetchErrorMessage")}
+          emptyTitle={t("search.emptyTitle")}
+          emptyDescription={t("search.emptyDescription")}
+          onRetry={() => void searchQuery.refetch()}
+        >
+          <VideoGrid items={orderedSearchResults} />
+        </QueryStateView>
       ) : null}
-      {q && !searchQuery.isLoading && !searchQuery.isError && (searchQuery.data?.length ?? 0) === 0 ? (
-        <EmptyState title="結果が見つかりません" description="フィルタを変更して再試行してください。" />
-      ) : null}
-      {q && (searchQuery.data?.length ?? 0) > 0 ? <VideoGrid items={searchQuery.data ?? []} /> : null}
     </div>
   );
 };

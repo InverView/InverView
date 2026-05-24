@@ -16,9 +16,11 @@ import {
   useRestoreFocusSource,
   useRestoreFocusTarget,
 } from "@fluentui/react-components";
-import { Share24Regular, VideoClip24Regular, Add24Regular, Dismiss24Regular } from "@fluentui/react-icons";
+import { Share24Regular, VideoClip24Regular, Add24Regular, Dismiss24Regular, Comment24Regular } from "@fluentui/react-icons";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { canUsePictureInPictureApi, shareContent, togglePictureInPicture, vibrate } from "../../lib/webPlatform";
+import { useSettingsStore } from "../../store/settingsStore";
 import { ChromecastButton } from "../ChromecastButton";
 import type { VideoDetails } from "../../types/invidious";
 import { addVideoToLocalPlaylist, createLocalPlaylist, getLocalPlaylists } from "../../lib/localPlaylists";
@@ -29,6 +31,11 @@ interface MobileVideoActionsProps {
   video: VideoDetails;
   baseUrl: string;
   startTimeSeconds?: number;
+  showSummaryAction?: boolean;
+  onSummaryClick?: () => void;
+  showCommentsAction?: boolean;
+  onCommentsClick?: () => void;
+  commentsLabel?: string;
 }
 
 const useStyles = makeStyles({
@@ -58,21 +65,28 @@ export const MobileVideoActions = ({
   video,
   baseUrl,
   startTimeSeconds,
+  showSummaryAction = false,
+  onSummaryClick,
+  showCommentsAction = false,
+  onCommentsClick,
+  commentsLabel,
 }: MobileVideoActionsProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const [, setLocalPlaylistVersion] = useState(0);
   const [isCreateDrawerOpen, setIsCreateDrawerOpen] = useState(false);
-  const [newPlaylistName, setNewPlaylistName] = useState("あとで見る");
+  const [newPlaylistName, setNewPlaylistName] = useState("");
   const [nameError, setNameError] = useState("");
   const restoreFocusTargetAttributes = useRestoreFocusTarget();
   const restoreFocusSourceAttributes = useRestoreFocusSource();
+  const hapticFeedback = useSettingsStore((state) => state.hapticFeedback);
   const watchUrl = `${window.location.origin}/watch/${videoId}?autoplay=1`;
   const localPlaylists = getLocalPlaylists();
 
   const copyLink = async (): Promise<void> => {
     try {
       await navigator.clipboard.writeText(watchUrl);
-      vibrate(20);
+      if (hapticFeedback) vibrate(20);
       // TODO: Implement Fluent v9 Toast
     } catch {
       // ignore
@@ -82,7 +96,7 @@ export const MobileVideoActions = ({
   const share = async (): Promise<void> => {
     const shared = await shareContent({ title, url: watchUrl });
     if (shared) {
-      vibrate([12, 24, 12]);
+      if (hapticFeedback) vibrate([12, 24, 12]);
       return;
     }
     await copyLink();
@@ -90,7 +104,7 @@ export const MobileVideoActions = ({
 
   const openPictureInPicture = async (): Promise<void> => {
     const success = await togglePictureInPicture();
-    if (success) vibrate(24);
+    if (success && hapticFeedback) vibrate(24);
   };
 
   const closeCreateDrawer = (): void => {
@@ -101,7 +115,7 @@ export const MobileVideoActions = ({
   const submitCreateAndAdd = (): void => {
     const trimmed = newPlaylistName.trim();
     if (!trimmed) {
-      setNameError("プレイリスト名を入力してください。");
+      setNameError(t("playlists.inputRequired"));
       return;
     }
     const created = createLocalPlaylist(trimmed);
@@ -115,24 +129,43 @@ export const MobileVideoActions = ({
       thumbnails: video.videoThumbnails,
     });
     setLocalPlaylistVersion((v) => v + 1);
-    setNewPlaylistName("あとで見る");
+    setNewPlaylistName("");
     closeCreateDrawer();
   };
 
   return (
     <div className={styles.container}>
+      {showSummaryAction && (
+        <Button
+          icon={<VideoClip24Regular />}
+          appearance="secondary"
+          onClick={() => onSummaryClick?.()}
+        >
+          {t("watch.summary")}
+        </Button>
+      )}
+      {showCommentsAction && (
+        <Button
+          icon={<Comment24Regular />}
+          appearance="secondary"
+          onClick={() => onCommentsClick?.()}
+          aria-label={commentsLabel ?? t("watch.comments")}
+        >
+          {commentsLabel ?? t("watch.comments")}
+        </Button>
+      )}
       <Button
         icon={<Share24Regular />}
-        appearance="outline"
+        appearance="secondary"
         onClick={share}
-        aria-label="共有"
+        aria-label={t("mobileActions.share")}
       >
-        共有
+        {t("mobileActions.share")}
       </Button>
       <Menu positioning="below-start">
         <MenuTrigger disableButtonEnhancement>
           <Button {...restoreFocusTargetAttributes} icon={<Add24Regular />} appearance="outline">
-            プレイリストに追加
+            {t("mobileActions.addToPlaylist")}
           </Button>
         </MenuTrigger>
         <MenuPopover>
@@ -161,7 +194,7 @@ export const MobileVideoActions = ({
                 setIsCreateDrawerOpen(true);
               }}
             >
-              新規プレイリストを作成
+              {t("mobileActions.createNewPlaylist")}
             </MenuItem>
           </MenuList>
         </MenuPopover>
@@ -178,30 +211,30 @@ export const MobileVideoActions = ({
             action={
               <Button
                 appearance="subtle"
-                aria-label="Close"
+                aria-label={t("common.close")}
                 icon={<Dismiss24Regular />}
                 onClick={closeCreateDrawer}
               />
             }
           >
-            新規プレイリスト
+            {t("playlists.newPlaylist")}
           </DrawerHeaderTitle>
         </DrawerHeader>
         <DrawerBody>
-          <Field label="プレイリスト名" validationMessage={nameError || undefined} validationState={nameError ? "error" : "none"}>
+          <Field label={t("playlists.nameLabel")} validationMessage={nameError || undefined} validationState={nameError ? "error" : "none"}>
             <Input
               value={newPlaylistName}
               onChange={(_, data) => {
                 setNewPlaylistName(data.value);
                 if (nameError) setNameError("");
               }}
-              placeholder="プレイリスト名を入力"
+              placeholder={t("playlists.namePlaceholder")}
             />
           </Field>
         </DrawerBody>
         <DrawerFooter>
-          <Button appearance="secondary" onClick={closeCreateDrawer}>キャンセル</Button>
-          <Button appearance="primary" onClick={submitCreateAndAdd}>作成して追加</Button>
+          <Button appearance="secondary" onClick={closeCreateDrawer}>{t("common.cancel")}</Button>
+          <Button appearance="primary" onClick={submitCreateAndAdd}>{t("mobileActions.createAndAdd")}</Button>
         </DrawerFooter>
       </OverlayDrawer>
       {canUsePictureInPictureApi() && (
@@ -209,7 +242,7 @@ export const MobileVideoActions = ({
           icon={<VideoClip24Regular />}
           appearance="outline"
           onClick={openPictureInPicture}
-          aria-label="ピクチャーインピクチャー"
+          aria-label={t("mobileActions.pictureInPicture")}
         >
           PiP
         </Button>

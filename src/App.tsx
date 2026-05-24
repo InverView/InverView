@@ -6,11 +6,78 @@ import { AppRoutes } from "./routes";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import { AppToaster } from "./components/AppToaster";
 import { useSettings } from "./hooks/useSettings";
-import { customV9LightTheme, customV9DarkTheme } from "./v9Theme";
+import { createCustomV9Theme } from "./v9Theme";
+import { resolveAccentColor } from "./accentColor";
+import { isCapacitorRuntime } from "./lib/runtimeEnv";
+import { setPrivacyScreenEnabled } from "./lib/capacitorSpecial";
+import { useOnlineStatus } from "./hooks/useOnlineStatus";
+import { OfflineView } from "./components/OfflineView";
+
+const toHexColor = (value: string): string | null => {
+  const color = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(color) || /^#[0-9a-fA-F]{8}$/.test(color)) {
+    return color;
+  }
+
+  const rgbMatch = color.match(
+    /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(?:0|1|0?\.\d+))?\s*\)$/i,
+  );
+  if (!rgbMatch) return null;
+
+  const [r, g, b] = rgbMatch.slice(1, 4).map((part) => Number.parseInt(part, 10));
+  if ([r, g, b].some((num) => Number.isNaN(num) || num < 0 || num > 255)) return null;
+
+  return `#${[r, g, b].map((num) => num.toString(16).padStart(2, "0")).join("")}`;
+};
 
 const ThemeSync = (): JSX.Element => {
-  const { settings } = useSettings();
+  const { settings, updateSettings } = useSettings();
   const { i18n } = useTranslation();
+  const isOnline = useOnlineStatus();
+
+  useEffect(() => {
+    if (settings.companionMode !== "default") return;
+
+    let active = true;
+    const testAndSetCompanion = async () => {
+      const primaryUrl = "https://companion.tsub4sa.xyz";
+      const fallbackUrl = "https://proxy.tsub4sa.xyz";
+
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        const res = await fetch(`${primaryUrl}/health`, {
+          method: "GET",
+          signal: controller.signal,
+        });
+        clearTimeout(timeoutId);
+
+        if (!active) return;
+
+        if (res.ok) {
+          if (settings.companionUrl !== primaryUrl) {
+            updateSettings({ companionUrl: primaryUrl });
+          }
+        } else {
+          if (settings.companionUrl !== fallbackUrl) {
+            updateSettings({ companionUrl: fallbackUrl });
+          }
+        }
+      } catch (err) {
+        if (!active) return;
+        if (settings.companionUrl !== fallbackUrl) {
+          updateSettings({ companionUrl: fallbackUrl });
+        }
+      }
+    };
+
+    void testAndSetCompanion();
+
+    return () => {
+      active = false;
+    };
+  }, [settings.companionMode, settings.companionUrl, updateSettings]);
 
   const isSystemDark = useMemo(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
@@ -23,10 +90,18 @@ const ThemeSync = (): JSX.Element => {
       (settings.theme === "system" && isSystemDark)
     );
   }, [settings.theme, isSystemDark]);
+  const isAmoled = useMemo(() => {
+    if (settings.theme === "amoled") return true;
+    return settings.amoledEnabled && isActuallyDark;
+  }, [settings.theme, settings.amoledEnabled, isActuallyDark]);
+
+  const accentColor = useMemo(() => {
+    return resolveAccentColor(settings.accentColor, settings.customAccentColor);
+  }, [settings.accentColor, settings.customAccentColor]);
 
   const v9Theme = useMemo(() => {
-    return isActuallyDark ? customV9DarkTheme : customV9LightTheme;
-  }, [isActuallyDark]);
+    return createCustomV9Theme(isActuallyDark, accentColor, isAmoled);
+  }, [isActuallyDark, accentColor, isAmoled]);
 
   useEffect(() => {
     void i18n.changeLanguage(settings.language?.startsWith("ja") ? "ja" : "en");
@@ -57,26 +132,71 @@ const ThemeSync = (): JSX.Element => {
     root.style.setProperty("--ui-density", densityMap[settings.uiDensity] || "1");
     root.style.setProperty("--content-max-width", `${settings.maxContentWidth}px`);
 
-    const accentMap: Record<string, string> = {
-      blue: "#2A8CFF",
-      red: "#EF4444",
-      purple: "#8B5CF6",
-      green: "#16A34A",
-      orange: "#EA580C",
-      pink: "#EC4899",
-      custom: settings.customAccentColor || "#2A8CFF",
-    };
-
-    root.style.setProperty("--app-accent", accentMap[settings.accentColor] || "#2A8CFF");
+    root.style.setProperty("--app-accent", accentColor);
+    root.style.setProperty("--is-amoled", isAmoled ? "1" : "0");
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeColorMeta instanceof HTMLMetaElement) {
+      themeColorMeta.content = isAmoled ? "#000000" : accentColor;
+    }
+    const appleStatusBarMeta = document.querySelector(
+      'meta[name="apple-mobile-web-app-status-bar-style"]',
+    );
+    if (appleStatusBarMeta instanceof HTMLMetaElement) {
+      appleStatusBarMeta.content = isActuallyDark ? "black-translucent" : "default";
+    }
 
     if (isActuallyDark) {
-      root.style.backgroundColor = settings.theme === "amoled" ? "#000000" : "#0f0f10";
+      root.style.backgroundColor = isAmoled ? "#000000" : "#0f0f10";
       root.style.color = "#ffffff";
     } else {
       root.style.backgroundColor = "#F7F7F8";
       root.style.color = "#1B1E26";
     }
-  }, [settings, isSystemDark, isActuallyDark]);
+  }, [settings, isSystemDark, isActuallyDark, isAmoled, accentColor]);
+
+  useEffect(() => {
+    if (!isCapacitorRuntime()) return;
+
+    let cancelled = false;
+
+    const syncNativeStatusBar = async (): Promise<void> => {
+      const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+      if (!(themeColorMeta instanceof HTMLMetaElement)) return;
+
+      const color = toHexColor(themeColorMeta.content) ?? toHexColor(accentColor) ?? "#2A8CFF";
+
+      try {
+        const { StatusBar, Style } = await import("@capacitor/status-bar");
+        if (cancelled) return;
+
+        await StatusBar.setOverlaysWebView({ overlay: false });
+        await StatusBar.setBackgroundColor({ color });
+        await StatusBar.setStyle({ style: isActuallyDark ? Style.Light : Style.Dark });
+      } catch {
+        // Ignore when StatusBar plugin is unavailable on current shell.
+      }
+    };
+
+    void syncNativeStatusBar();
+
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    if (!(themeColorMeta instanceof HTMLMetaElement)) return;
+
+    const observer = new MutationObserver(() => {
+      void syncNativeStatusBar();
+    });
+    observer.observe(themeColorMeta, { attributes: true, attributeFilter: ["content"] });
+
+    return () => {
+      cancelled = true;
+      observer.disconnect();
+    };
+  }, [isActuallyDark, accentColor]);
+
+  useEffect(() => {
+    if (!isCapacitorRuntime()) return;
+    void setPrivacyScreenEnabled(settings.privacyScreenEnabled);
+  }, [settings.privacyScreenEnabled]);
 
   useEffect(() => {
     if (!settings.useLenis) return;
@@ -123,25 +243,28 @@ const ThemeSync = (): JSX.Element => {
 
   return (
     <FluentProvider theme={v9Theme}>
-      <AppRoutes />
+      {isOnline ? <AppRoutes /> : <OfflineView />}
       <AppToaster />
     </FluentProvider>
   );
 };
 
-const App = (): JSX.Element => (
-  <QueryErrorResetBoundary>
-    {({ reset }) => (
-      <ErrorBoundary
-        title="アプリの描画でエラーが発生しました"
-        message="通信や一時的な状態不整合の可能性があります。再試行してください。"
-        onRetry={reset}
-      >
-        <ThemeSync />
-      </ErrorBoundary>
-    )}
-  </QueryErrorResetBoundary>
-);
+const App = (): JSX.Element => {
+  const { t } = useTranslation();
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <ErrorBoundary
+          title={t("app.renderErrorTitle")}
+          message={t("app.renderErrorMessage")}
+          onRetry={reset}
+        >
+          <ThemeSync />
+        </ErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  );
+};
 
 export default App;
 

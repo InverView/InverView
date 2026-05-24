@@ -12,24 +12,35 @@ import {
   Option,
 } from "@fluentui/react-components";
 import DOMPurify from "dompurify";
-import { useQuery, useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { ChannelCard } from "../components/ChannelCard";
 import { EmptyState } from "../components/EmptyState";
 import { ErrorState } from "../components/ErrorState";
+import { ChannelPageSkeleton } from "../components/ChannelPageSkeleton";
 import { LoadingGrid } from "../components/LoadingGrid";
 import { MobileChannelHeader } from "../components/mobile/MobileChannelHeader";
 import { PlaylistCard } from "../components/PlaylistCard";
 import { VideoCard } from "../components/VideoCard";
 import { VideoGrid } from "../components/VideoGrid";
 import { formatNumberJa } from "../lib/format";
-import { getChannel, getChannelPlaylists, getChannelShorts, getChannelStreams, getChannelVideos } from "../lib/invidiousClient";
+import {
+  addSubscription,
+  getAuthSubscriptions,
+  getChannel,
+  getChannelPlaylists,
+  getChannelShorts,
+  getChannelStreams,
+  getChannelVideos,
+  removeSubscription,
+} from "../lib/invidiousClient";
 import { pickBestThumbnail, resolveMediaUrl } from "../lib/media";
 import { queryKeys } from "../lib/queryKeys";
 import { useSettingsStore } from "../store/settingsStore";
-import { addLocalSubscription, isLocallySubscribed, removeLocalSubscription } from "../lib/localSubscriptions";
-import { getCurrentLocalUser } from "../lib/localUsers";
+import { useTranslation } from "react-i18next";
+import { notifyError } from "../lib/notifications";
+import { getYouTubeChannelVideos } from "../lib/youtubeJsData";
 
 const useStyles = makeStyles({
   container: {
@@ -126,21 +137,28 @@ const useStyles = makeStyles({
   },
 });
 
+const INFINITE_QUERY_MAX_PAGES = 4;
+const INFINITE_QUERY_GC_TIME_MS = 60_000;
+
 export const ChannelPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const { authorId = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const currentTab = searchParams.get("tab") || "home";
   const baseUrl = useSettingsStore((state) => state.apiBaseUrl);
+  const token = useSettingsStore((state) => state.token);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [sortBy, setSortBy] = useState<"newest" | "popular" | "oldest">("newest");
-  const queryClient = useQueryClient();
-  const localUser = getCurrentLocalUser();
 
-  const localSubscribedQuery = useQuery({
-    queryKey: [...queryKeys.localSubscriptions(localUser.id), authorId, "status"],
-    queryFn: async () => isLocallySubscribed(authorId),
-    enabled: !!authorId,
+  const subscribedQuery = useQuery({
+    queryKey: [...queryKeys.authSubscriptions, authorId, "status"],
+    queryFn: async () => {
+      if (!authorId) return false;
+      const subscriptions = await getAuthSubscriptions();
+      return subscriptions.some((channel) => channel.authorId === authorId);
+    },
+    enabled: !!authorId && !!token,
   });
 
   const channelQuery = useQuery({
@@ -161,10 +179,25 @@ export const ChannelPage = (): JSX.Element => {
 
   const videoListQuery = useInfiniteQuery({
     queryKey: queryKeys.channelVideos(authorId, sortBy, mode),
-    queryFn: ({ pageParam, signal }) => {
+    queryFn: async ({ pageParam, signal }) => {
       const continuation = typeof pageParam === "string" ? pageParam : undefined;
       if (mode === "videos") {
-        return getChannelVideos(authorId, { sort_by: sortBy, continuation }, signal);
+        try {
+          return await getChannelVideos(authorId, { sort_by: sortBy, continuation }, signal);
+        } catch (error) {
+          // Invidious側の一部インスタンスで /channels/:id/videos が落ちることがあるため、
+          // 先頭ページは youtube.js を優先フォールバックし、だめなら latestVideos を使う。
+          if (!continuation) {
+            try {
+              const videos = await getYouTubeChannelVideos(authorId);
+              return { videos, continuation: undefined };
+            } catch {
+              const channel = await getChannel(authorId, signal);
+              return { videos: channel.latestVideos ?? [], continuation: undefined };
+            }
+          }
+          throw error;
+        }
       }
       if (mode === "shorts") {
         return getChannelShorts(authorId, { continuation }, signal);
@@ -174,18 +207,20 @@ export const ChannelPage = (): JSX.Element => {
     getNextPageParam: (lastPage) => lastPage.continuation,
     initialPageParam: undefined as string | undefined,
     enabled: !!authorId && isVideoTab,
+    maxPages: INFINITE_QUERY_MAX_PAGES,
+    gcTime: INFINITE_QUERY_GC_TIME_MS,
   });
 
   const videoListItems = useMemo(() => videoListQuery.data?.pages.flatMap((page) => page.videos ?? []) ?? [], [videoListQuery.data]);
 
-  if (!authorId) return <EmptyState title="チャンネルIDがありません" description="URL を確認してください。" />;
-  if (channelQuery.isLoading) return <LoadingGrid />;
+  if (!authorId) return <EmptyState title={t("channelPage.noChannelIdTitle")} description={t("channelPage.noChannelIdDescription")} />;
+  if (channelQuery.isLoading) return <ChannelPageSkeleton />;
   if (channelQuery.isError || !channelQuery.data) {
-    return <ErrorState title="チャンネルを取得できません" message="チャンネル情報の取得に失敗しました。" onRetry={() => channelQuery.refetch()} />;
+    return <ErrorState title={t("channelPage.fetchErrorTitle")} message={t("channelPage.fetchErrorMessage")} onRetry={() => channelQuery.refetch()} />;
   }
 
   const channel = channelQuery.data;
-  const isLocalSubscribed = localSubscribedQuery.data ?? false;
+  const isSubscribed = subscribedQuery.data ?? false;
   const banner = channel.authorBanners?.[0];
   const avatar = pickBestThumbnail(channel.authorThumbnails);
 
@@ -197,14 +232,22 @@ export const ChannelPage = (): JSX.Element => {
     });
   };
 
-  const toggleLocalSubscribe = (): void => {
-    if (isLocalSubscribed) {
-      removeLocalSubscription(authorId);
-    } else {
-      addLocalSubscription(authorId);
+  const toggleSubscribe = async (): Promise<void> => {
+    if (!token) {
+      notifyError(t("feed.loginRequiredDescription"));
+      return;
     }
-    void localSubscribedQuery.refetch();
-    void queryClient.invalidateQueries({ queryKey: queryKeys.localSubscriptions(localUser.id) });
+    try {
+      if (isSubscribed) {
+        await removeSubscription(authorId);
+      } else {
+        await addSubscription(authorId);
+      }
+      void subscribedQuery.refetch();
+    } catch (error) {
+      console.error(error);
+      notifyError(t("subscriptions.fetchErrorAuth"));
+    }
   };
 
   const renderHome = () => (
@@ -213,7 +256,7 @@ export const ChannelPage = (): JSX.Element => {
         <div
           className={styles.descriptionContent}
           style={{ maxHeight: showFullDescription ? "none" : "120px" }}
-          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(channel.descriptionHtml || channel.description || "説明なし") }}
+          dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(channel.descriptionHtml || channel.description || t("channelPage.noDescription")) }}
         />
         <Button
           appearance="subtle"
@@ -221,14 +264,14 @@ export const ChannelPage = (): JSX.Element => {
           style={{ alignSelf: "flex-start" }}
           onClick={() => setShowFullDescription((prev) => !prev)}
         >
-          {showFullDescription ? "閉じる" : "もっと見る"}
+          {showFullDescription ? t("channelPage.closeDescription") : t("watch.showMore")}
         </Button>
       </Card>
 
       <div className={styles.section}>
-        <Text size={400} weight="bold">最新動画</Text>
+        <Text size={400} weight="bold">{t("channelPage.latestVideos")}</Text>
         {(channel.latestVideos ?? []).length === 0 ? (
-          <EmptyState title="動画がありません" description="最新動画が取得できませんでした。" />
+          <EmptyState title={t("channel.emptyTitle")} description={t("channelPage.latestEmptyDescription")} />
         ) : (
           <div className={styles.grid}>
             {(channel.latestVideos ?? []).map((v) => (
@@ -240,7 +283,7 @@ export const ChannelPage = (): JSX.Element => {
 
       {(playlistsQuery.data?.playlists?.length ?? 0) > 0 && (
         <div className={styles.section}>
-          <Text size={400} weight="bold">プレイリスト</Text>
+          <Text size={400} weight="bold">{t("channelPage.playlists")}</Text>
           <div className={styles.playlistGrid}>
             {(playlistsQuery.data?.playlists ?? []).slice(0, 6).map((p) => (
               <PlaylistCard key={p.playlistId} playlist={p} />
@@ -251,7 +294,7 @@ export const ChannelPage = (): JSX.Element => {
 
       {(channel.relatedChannels ?? []).length > 0 && (
         <div className={styles.section}>
-          <Text size={400} weight="bold">関連チャンネル</Text>
+          <Text size={400} weight="bold">{t("channelPage.relatedChannels")}</Text>
           <div className={styles.playlistGrid}>
             {(channel.relatedChannels ?? []).slice(0, 6).map((related) => (
               <ChannelCard key={related.authorId} channel={related} />
@@ -266,23 +309,23 @@ export const ChannelPage = (): JSX.Element => {
     <div className={styles.section}>
       {currentTab === "videos" && (
         <div className={styles.filterRow}>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>並び替え</Text>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{t("channelPage.sortLabel")}</Text>
           <Combobox
             selectedOptions={[sortBy]}
             value={sortBy}
             onOptionSelect={(_, data) => setSortBy(data.optionValue as any)}
           >
-            <Option value="newest">newest</Option>
-            <Option value="popular">popular</Option>
-            <Option value="oldest">oldest</Option>
+            <Option value="newest">{t("common.sortNewest")}</Option>
+            <Option value="popular">{t("common.sortPopular")}</Option>
+            <Option value="oldest">{t("common.sortOldest")}</Option>
           </Combobox>
         </div>
       )}
       
       {videoListQuery.isLoading ? <LoadingGrid /> : null}
-      {videoListQuery.isError ? <ErrorState title="取得失敗" message="動画を取得できませんでした。" onRetry={() => videoListQuery.refetch()} /> : null}
+      {videoListQuery.isError ? <ErrorState title={t("channelPage.loadErrorTitle")} message={t("channelPage.loadVideosErrorMessage")} onRetry={() => videoListQuery.refetch()} /> : null}
       {!videoListQuery.isLoading && !videoListQuery.isError && videoListItems.length === 0 ? (
-        <EmptyState title="動画がありません" description="このタブに表示できる項目がありません。" />
+        <EmptyState title={t("channel.emptyTitle")} description={t("channel.emptyDescription")} />
       ) : null}
       {videoListItems.length > 0 && <VideoGrid items={videoListItems} isShorts={currentTab === "shorts"} authorId={authorId} />}
 
@@ -294,7 +337,7 @@ export const ChannelPage = (): JSX.Element => {
           appearance="outline"
           icon={videoListQuery.isFetchingNextPage ? <Spinner size="tiny" /> : undefined}
         >
-          さらに読み込む
+          {t("common.loadMore")}
         </Button>
       )}
     </div>
@@ -303,9 +346,9 @@ export const ChannelPage = (): JSX.Element => {
   const renderPlaylists = () => (
     <div className={styles.section}>
       {playlistsQuery.isLoading ? <LoadingGrid count={4} /> : null}
-      {playlistsQuery.isError ? <ErrorState title="取得失敗" message="プレイリストを取得できませんでした。" onRetry={() => playlistsQuery.refetch()} /> : null}
+      {playlistsQuery.isError ? <ErrorState title={t("channelPage.loadErrorTitle")} message={t("channelPage.loadPlaylistsErrorMessage")} onRetry={() => playlistsQuery.refetch()} /> : null}
       {!playlistsQuery.isLoading && !playlistsQuery.isError && (playlistsQuery.data?.playlists?.length ?? 0) === 0 ? (
-        <EmptyState title="プレイリストがありません" description="公開プレイリストが見つかりません。" />
+        <EmptyState title={t("channelPage.playlistsEmptyTitle")} description={t("channelPage.playlistsEmptyDescription")} />
       ) : null}
       {(playlistsQuery.data?.playlists?.length ?? 0) > 0 && (
         <div className={styles.playlistGrid}>
@@ -334,10 +377,10 @@ export const ChannelPage = (): JSX.Element => {
         />
         <div className={styles.headerInfo}>
           <Text size={600} weight="bold">{channel.author}</Text>
-          <Text style={{ color: tokens.colorNeutralForeground3 }}>登録者 {formatNumberJa(channel.subCount)} 人</Text>
+          <Text style={{ color: tokens.colorNeutralForeground3 }}>{t("channelPage.subscribers", { count: formatNumberJa(channel.subCount) })}</Text>
           <div style={{ marginTop: "8px" }}>
-            <Button appearance={isLocalSubscribed ? "outline" : "primary"} size="small" onClick={toggleLocalSubscribe}>
-              {isLocalSubscribed ? "登録解除" : "チャンネル登録"}
+            <Button appearance={isSubscribed ? "outline" : "primary"} size="small" onClick={() => void toggleSubscribe()}>
+              {isSubscribed ? t("channelPage.unsubscribe") : t("channelPage.subscribe")}
             </Button>
           </div>
         </div>
@@ -359,11 +402,11 @@ export const ChannelPage = (): JSX.Element => {
 
       <div className={styles.tabArea}>
         <TabList selectedValue={currentTab} onTabSelect={onTabSelect}>
-          <Tab value="home">ホーム</Tab>
-          <Tab value="videos">動画</Tab>
-          <Tab value="shorts">ショート</Tab>
-          <Tab value="streams">ライブ</Tab>
-          <Tab value="playlists">プレイリスト</Tab>
+          <Tab value="home">{t("channelPage.tabHome")}</Tab>
+          <Tab value="videos">{t("channelPage.tabVideos")}</Tab>
+          <Tab value="shorts">{t("channelPage.tabShorts")}</Tab>
+          <Tab value="streams">{t("channelPage.tabStreams")}</Tab>
+          <Tab value="playlists">{t("channelPage.tabPlaylists")}</Tab>
         </TabList>
       </div>
 

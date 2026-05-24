@@ -5,15 +5,50 @@ import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider, type PersistedClient, type Persister } from "@tanstack/react-query-persist-client";
 import { HelmetProvider } from "react-helmet-async";
 import App from "./App";
-import { DevtoolsOnDemand } from "./components/DevtoolsOnDemand";
 import { SettingsProvider } from "./settings/SettingsProvider";
 import { registerPwaServiceWorker, setupAdvancedWebApis } from "./pwa";
 import { initializeRecentSearches } from "./lib/recentSearch";
 import { initializeWatchHistory } from "./lib/watchHistory";
 import { initSentry } from "./lib/sentry";
 import { deleteApiCache, getApiCache, setApiCache } from "./lib/cacheDb";
+import { ensureNativeProxyStarted } from "./lib/nativeProxy";
+import { initCapacitorSpecial } from "./lib/capacitorSpecial";
 import "./i18n";
 import "./index.css";
+
+const DYNAMIC_IMPORT_RELOAD_GUARD_KEY = "inverview-dynamic-import-reload-once";
+
+const isDynamicImportFetchError = (reason: unknown): boolean => {
+  if (reason instanceof Error) {
+    return /Failed to fetch dynamically imported module/i.test(reason.message);
+  }
+  if (typeof reason === "string") {
+    return /Failed to fetch dynamically imported module/i.test(reason);
+  }
+  return false;
+};
+
+const reloadOnceForDynamicImportError = (): void => {
+  const alreadyReloaded = sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY) === "1";
+  if (alreadyReloaded) return;
+  sessionStorage.setItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY, "1");
+  window.location.reload();
+};
+
+window.addEventListener("pageshow", () => {
+  sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY);
+});
+
+window.addEventListener("vite:preloadError", (event) => {
+  event.preventDefault();
+  reloadOnceForDynamicImportError();
+});
+
+window.addEventListener("unhandledrejection", (event) => {
+  if (!isDynamicImportFetchError(event.reason)) return;
+  event.preventDefault();
+  reloadOnceForDynamicImportError();
+});
 
 const QUERY_CACHE_KEY = "invidious-react-query-cache-v2";
 const CACHE_MAX_AGE_MS = 1000 * 60 * 15;
@@ -105,7 +140,6 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
             <App />
           </BrowserRouter>
         </HelmetProvider>
-        {import.meta.env.DEV ? <DevtoolsOnDemand runWhenIdle={runWhenIdle} /> : null}
       </PersistQueryClientProvider>
     </SettingsProvider>
   </React.StrictMode>,
@@ -114,6 +148,8 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 runWhenIdle(() => {
   initializeRecentSearches();
   initializeWatchHistory();
+  void ensureNativeProxyStarted().catch((error) => console.warn("NativeProxy start failed", error));
+  void initCapacitorSpecial();
   void initSentry();
 });
 

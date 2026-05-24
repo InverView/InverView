@@ -1,10 +1,12 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { type ReactNode, Suspense, lazy, useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppShell } from "./components/AppShell";
 import { Spinner } from "@fluentui/react-components";
 import { useSettings } from "./hooks/useSettings";
 import { resolveLaunchPath } from "./lib/launchIntent";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { useTranslation } from "react-i18next";
+import { Helmet } from "react-helmet-async";
 
 const AuthPlaylistsPage = lazy(() => import("./pages/AuthPlaylistsPage").then((module) => ({ default: module.AuthPlaylistsPage })));
 const ChannelPage = lazy(() => import("./pages/ChannelPage").then((module) => ({ default: module.ChannelPage })));
@@ -17,6 +19,8 @@ const SearchPage = lazy(() => import("./pages/SearchPage").then((module) => ({ d
 const SettingsPage = lazy(() => import("./pages/SettingsPage").then((module) => ({ default: module.SettingsPage })));
 const ShortsPage = lazy(() => import("./pages/ShortsPage").then((module) => ({ default: module.ShortsPage })));
 const SubscriptionsPage = lazy(() => import("./pages/SubscriptionsPage").then((module) => ({ default: module.SubscriptionsPage })));
+const TvHomePage = lazy(() => import("./pages/TvHomePage").then((module) => ({ default: module.TvHomePage })));
+const TvSenderPage = lazy(() => import("./pages/TvSenderPage").then((module) => ({ default: module.TvSenderPage })));
 const WatchPage = lazy(() => import("./pages/WatchPage").then((module) => ({ default: module.WatchPage })));
 
 const ScrollToTop = (): null => {
@@ -51,6 +55,7 @@ const LaunchIntentRedirect = (): JSX.Element => {
 };
 
 const RouteFallback = (): JSX.Element => {
+  const { t } = useTranslation();
   const [reducedMotion, setReducedMotion] = useState(false);
 
   useEffect(() => {
@@ -77,14 +82,35 @@ const RouteFallback = (): JSX.Element => {
         tabIndex={0}
         size="large"
         delay={120}
-        label={reducedMotion ? "ページを読み込んでいます" : "読み込み中"}
+        label={reducedMotion ? t("app.loadingPage") : t("app.loading")}
         labelPosition="below"
       />
     </div>
   );
 };
 
+interface PageTitleProps {
+  title: string;
+  children: ReactNode;
+}
+
+const PageTitle = ({ title, children }: PageTitleProps): JSX.Element => {
+  const { t } = useTranslation();
+  const appName = t("appName");
+  const pageTitle = title ? `${title} - ${appName}` : appName;
+
+  return (
+    <>
+      <Helmet>
+        <title>{pageTitle}</title>
+      </Helmet>
+      {children}
+    </>
+  );
+};
+
 export const AppRoutes = (): JSX.Element => {
+  const { t } = useTranslation();
   const location = useLocation();
   const state = location.state as { backgroundLocation?: typeof location } | null;
   const backgroundLocation = state?.backgroundLocation;
@@ -93,36 +119,39 @@ export const AppRoutes = (): JSX.Element => {
     <>
       <ScrollToTop />
       <ErrorBoundary
-        title="ページの読み込みに失敗しました"
-        message="ページファイルの読み込み中に問題が発生しました。再試行してください。"
+        title={t("app.routeErrorTitle")}
+        message={t("app.routeErrorMessage")}
       >
         <Suspense fallback={<RouteFallback />}>
           <Routes location={backgroundLocation || location}>
             <Route element={<AppShell />}>
-              <Route path="/" element={<HomePage />} />
+              <Route path="/" element={<PageTitle title={t("home.title")}><HomePage /></PageTitle>} />
               <Route path="/landing" element={<LandingRedirect />} />
-              <Route path="/search" element={<SearchPage />} />
+              <Route path="/search" element={<PageTitle title={t("search.title")}><SearchPage /></PageTitle>} />
               <Route path="/share-target" element={<LaunchIntentRedirect />} />
               <Route path="/open" element={<LaunchIntentRedirect />} />
               <Route path="/watch/:videoId" element={<WatchPage />} />
-              <Route path="/shorts/:videoId?" element={<ShortsPage />} />
-              <Route path="/channel/:authorId" element={<ChannelPage />} />
-              <Route path="/channel/:authorId/videos" element={<ChannelVideosPage mode="videos" />} />
-              <Route path="/channel/:authorId/shorts" element={<ChannelVideosPage mode="shorts" />} />
-              <Route path="/channel/:authorId/streams" element={<ChannelVideosPage mode="streams" />} />
-              <Route path="/playlist/:playlistId" element={<PlaylistPage />} />
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/history" element={<HistoryPage />} />
-              <Route path="/feed" element={<FeedPage />} />
-              <Route path="/subscriptions" element={<SubscriptionsPage />} />
-              <Route path="/playlists" element={<AuthPlaylistsPage />} />
+              <Route path="/tv/watch/:videoId" element={<WatchPage />} />
+              <Route path="/shorts/:videoId?" element={<PageTitle title={t("shorts.title")}><ShortsPage /></PageTitle>} />
+              <Route path="/channel/:authorId" element={<PageTitle title={t("channel.title")}><ChannelPage /></PageTitle>} />
+              <Route path="/channel/:authorId/videos" element={<PageTitle title={t("channelVideos.videos")}><ChannelVideosPage mode="videos" /></PageTitle>} />
+              <Route path="/channel/:authorId/shorts" element={<PageTitle title={t("channelVideos.shorts")}><ChannelVideosPage mode="shorts" /></PageTitle>} />
+              <Route path="/channel/:authorId/streams" element={<PageTitle title={t("channelVideos.streams")}><ChannelVideosPage mode="streams" /></PageTitle>} />
+              <Route path="/playlist/:playlistId" element={<PageTitle title={t("playlist.title")}><PlaylistPage /></PageTitle>} />
+              <Route path="/settings" element={<PageTitle title={t("settings.title")}><SettingsPage /></PageTitle>} />
+              <Route path="/history" element={<PageTitle title={t("history.title")}><HistoryPage /></PageTitle>} />
+              <Route path="/feed" element={<PageTitle title={t("feed.title")}><FeedPage /></PageTitle>} />
+              <Route path="/subscriptions" element={<PageTitle title={t("subscriptions.title")}><SubscriptionsPage /></PageTitle>} />
+              <Route path="/playlists" element={<PageTitle title={t("playlists.title")}><AuthPlaylistsPage /></PageTitle>} />
+              <Route path="/tv" element={<PageTitle title="TV Client"><TvHomePage /></PageTitle>} />
+              <Route path="/tv/sender" element={<PageTitle title="TV Sender"><TvSenderPage /></PageTitle>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Route>
           </Routes>
 
           {backgroundLocation ? (
             <Routes>
-              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/settings" element={<PageTitle title={t("settings.title")}><SettingsPage /></PageTitle>} />
             </Routes>
           ) : null}
         </Suspense>

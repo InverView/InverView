@@ -1,42 +1,34 @@
+import React from "react";
 import {
-  Text,
   makeStyles,
-  tokens,
   Button,
-  Card,
   MessageBar,
   MessageBarTitle,
   MessageBarBody,
 } from "@fluentui/react-components";
+import { useTranslation } from "react-i18next";
+import { StateCard } from "./StateCard";
 
 interface ErrorStateProps {
   title?: string;
-  message: string;
+  message: React.ReactNode;
   onRetry?: () => void;
 }
 
 const useStyles = makeStyles({
-  card: {
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  message: {
-    color: tokens.colorPaletteRedForeground1,
-  },
   retryBtn: {
     width: "fit-content",
   },
 });
 
-export const ErrorState = ({ title = "エラー", message, onRetry }: ErrorStateProps): JSX.Element => {
+export const ErrorState = ({ title, message, onRetry }: ErrorStateProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   return (
-    <Card appearance="outline" className={styles.card}>
+    <StateCard>
       <MessageBar intent="error">
         <MessageBarBody>
-          <MessageBarTitle>{title}</MessageBarTitle>
+          <MessageBarTitle>{title ?? t("app.renderErrorTitle")}</MessageBarTitle>
           {message}
         </MessageBarBody>
       </MessageBar>
@@ -47,10 +39,10 @@ export const ErrorState = ({ title = "エラー", message, onRetry }: ErrorState
             onClick={onRetry}
             className={styles.retryBtn}
           >
-            再試行
+            {t("common.retry")}
           </Button>
         )}
       </div>
-    </Card>
+    </StateCard>
   );
 };

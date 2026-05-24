@@ -91,8 +91,9 @@ const inFlightRequests = new Map<string, InFlightRecord>();
 const IN_FLIGHT_DEDUPE_WINDOW_MS = 20_000;
 
 async function requestJson<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { apiBaseUrl, token, language, region } = getSettingsSnapshot();
-  const endpoint = buildApiUrl(path, apiBaseUrl);
+  const { apiBaseUrl, apiProxyUrl, token, language, region } = getSettingsSnapshot();
+  const effectiveBaseUrl = (apiProxyUrl || apiBaseUrl || "").trim();
+  const endpoint = buildApiUrl(path, effectiveBaseUrl);
 
   const searchParams = toSearchParams({
     hl: language || "ja",

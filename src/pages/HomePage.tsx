@@ -8,18 +8,22 @@ import {
   type TabListProps,
 } from "@fluentui/react-components";
 import { ArrowClockwise24Regular } from "@fluentui/react-icons";
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { getPopular, getTrending } from "../lib/invidiousClient";
-import { SearchBar } from "../components/SearchBar";
+import { useTranslation } from "react-i18next";
+import { getAuthFeed, getChannel, getPopular, getTrending } from "../lib/invidiousClient";
 import { queryKeys } from "../lib/queryKeys";
-import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingGrid } from "../components/LoadingGrid";
 import { VideoGrid } from "../components/VideoGrid";
 import { useSettingsStore } from "../store/settingsStore";
 import { useSettings } from "../hooks/useSettings";
+import { QueryStateView } from "../components/QueryStateView";
+import { triggerHaptic } from "../lib/haptic";
+import { getCurrentLocalUser } from "../lib/localUsers";
+import { getLocalSubscriptionIds } from "../lib/localSubscriptions";
+import type { VideoObject } from "../types/invidious";
+import { mergeTrendingAndSubscriptions } from "../lib/workerClient";
+
 
 const trendCategories = ["default", "music", "gaming", "movies"] as const;
 const isTrendCategory = (value: string): value is (typeof trendCategories)[number] =>
@@ -31,10 +35,11 @@ const useStyles = makeStyles({
     flexDirection: "column",
     gap: "20px",
   },
-  header: {
+  tabHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: "12px",
   },
   tabContent: {
     paddingTop: "20px",
@@ -45,7 +50,14 @@ const useStyles = makeStyles({
     overflowX: "auto",
     paddingBottom: "8px",
     maxWidth: "100%",
+    marginLeft: "-16px",
+    marginRight: "-16px",
+    paddingLeft: "16px",
+    paddingRight: "32px",
     scrollbarWidth: "none",
+    maskImage: "linear-gradient(to right, rgba(0, 0, 0, calc(1 - var(--left-mask-opacity, 0))) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0) 100%)",
+    WebkitMaskImage: "linear-gradient(to right, rgba(0, 0, 0, calc(1 - var(--left-mask-opacity, 0))) 0%, rgba(0, 0, 0, 1) 10%, rgba(0, 0, 0, 1) 90%, rgba(0, 0, 0, 0) 100%)",
+    transition: "--left-mask-opacity 0.25s cubic-bezier(0.4, 0, 0.2, 1)",
     "::-webkit-scrollbar": {
       display: "none",
     },
@@ -55,6 +67,25 @@ const useStyles = makeStyles({
     height: "36px",
     flexShrink: 0,
   },
+  sidebarResponsiveMotion: {
+    animationName: {
+      from: {
+        opacity: 0.985,
+        transform: "translate3d(0, 4px, 0) scale(0.998)",
+      },
+      to: {
+        opacity: 1,
+        transform: "translate3d(0, 0, 0) scale(1)",
+      },
+    },
+    animationDuration: "150ms",
+    animationTimingFunction: "cubic-bezier(0.2, 0, 0, 1)",
+    animationFillMode: "both",
+    willChange: "transform, opacity",
+    "@media (prefers-reduced-motion: reduce)": {
+      animation: "none",
+    },
+  },
 });
 
 export const HomePage = (): JSX.Element => {
@@ -63,7 +94,14 @@ export const HomePage = (): JSX.Element => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const region = useSettingsStore((state) => state.region);
+  const token = useSettingsStore((state) => state.token);
+  const sidebarCollapsed = useSettingsStore((state) => state.sidebarCollapsed);
   const { settings } = useSettings();
+  const localUser = getCurrentLocalUser();
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const prevSidebarCollapsedRef = useRef(sidebarCollapsed);
+  const { t } = useTranslation();
+  const [isScrolledLeft, setIsScrolledLeft] = useState(false);
   
   const initialTab = searchParams.get("homeTab") === "popular" ? "popular" : "trending";
   const rawCategory = searchParams.get("category");
@@ -82,6 +120,64 @@ export const HomePage = (): JSX.Element => {
     enabled: initialTab !== "popular",
     placeholderData: (previousData) => previousData,
   });
+
+  const authFeedQuery = useQuery({
+    queryKey: queryKeys.authFeed(1),
+    queryFn: ({ signal }) => getAuthFeed({ page: 1 }, signal),
+    enabled: initialTab !== "popular" && !!token,
+    placeholderData: (previousData) => previousData,
+  });
+
+  const localSubscribedVideosQuery = useQuery({
+    queryKey: [...queryKeys.localSubscriptions(localUser.id), "home-mixed-videos"],
+    queryFn: async ({ signal }) => {
+      const ids = getLocalSubscriptionIds().slice(0, 12);
+      const settled = await Promise.allSettled(
+        ids.map((id) => getChannel(id, signal)),
+      );
+      return settled
+        .filter((item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof getChannel>>> => item.status === "fulfilled")
+        .flatMap((item) => (item.value.latestVideos ?? []).slice(0, 2));
+    },
+    enabled: initialTab !== "popular" && !token,
+    placeholderData: (previousData) => previousData,
+  });
+
+  const [mergedVideos, setMergedVideos] = useState<VideoObject[]>([]);
+  const [isMerging, setIsMerging] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const trendingData = trendingQuery.data ?? [];
+    const subscribedData = token
+      ? (authFeedQuery.data?.videos ?? [])
+      : (localSubscribedVideosQuery.data ?? []);
+
+    if (trendingData.length === 0 && subscribedData.length === 0) {
+      setMergedVideos([]);
+      return;
+    }
+
+    setIsMerging(true);
+    void mergeTrendingAndSubscriptions(trendingData, subscribedData).then((result) => {
+      if (active) {
+        setMergedVideos(result);
+        setIsMerging(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [trendingQuery.data, authFeedQuery.data, localSubscribedVideosQuery.data, token]);
+
+  useEffect(() => {
+    if (prevSidebarCollapsedRef.current === sidebarCollapsed) return;
+    prevSidebarCollapsedRef.current = sidebarCollapsed;
+    setSidebarAnimating(true);
+    const timerId = window.setTimeout(() => setSidebarAnimating(false), 170);
+    return () => window.clearTimeout(timerId);
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     let timeoutId = 0;
@@ -130,28 +226,62 @@ export const HomePage = (): JSX.Element => {
     if (initialTab === "popular") {
       await popularQuery.refetch();
     } else {
-      await trendingQuery.refetch();
+      await Promise.all([
+        trendingQuery.refetch(),
+        token ? authFeedQuery.refetch() : localSubscribedVideosQuery.refetch(),
+      ]);
     }
   };
 
   const renderPopular = (): JSX.Element => {
-    if (popularQuery.isLoading) return <LoadingGrid />;
-    if (popularQuery.isError) {
-      return <ErrorState title="人気動画を取得できません" message="インスタンスが応答していません。" onRetry={() => popularQuery.refetch()} />;
-    }
-    const items = popularQuery.data ?? [];
-    if (!items.length) return <EmptyState title="人気動画がありません" description="別のインスタンスを試してください。" />;
-    return <VideoGrid items={items} />;
+    const items = (popularQuery.data ?? []).filter((item) => !item.liveNow && !item.isUpcoming);
+    return (
+      <QueryStateView
+        isLoading={popularQuery.isLoading}
+        isError={popularQuery.isError}
+        isEmpty={!items.length}
+        errorTitle={t("home.popularFetchErrorTitle")}
+        errorMessage={t("home.popularFetchErrorMessage")}
+        emptyTitle={t("home.popularEmptyTitle")}
+        emptyDescription={t("home.popularEmptyDescription")}
+        onRetry={() => void popularQuery.refetch()}
+      >
+        <VideoGrid items={items} />
+      </QueryStateView>
+    );
   };
 
   const renderTrending = (): JSX.Element => {
-    if (trendingQuery.isLoading) return <LoadingGrid />;
-    if (trendingQuery.isError) {
-      return <ErrorState title="トレンドを取得できません" message="トレンドの取得に失敗しました。" onRetry={() => trendingQuery.refetch()} />;
-    }
-    const items = trendingQuery.data ?? [];
-    if (!items.length) return <EmptyState title="トレンドがありません" description="カテゴリを変更して再試行してください。" />;
-    return <VideoGrid items={items} />;
+    const isLoading =
+      trendingQuery.isLoading ||
+      authFeedQuery.isLoading ||
+      localSubscribedVideosQuery.isLoading ||
+      isMerging;
+    const isError =
+      trendingQuery.isError &&
+      (token ? authFeedQuery.isError : localSubscribedVideosQuery.isError);
+
+    return (
+      <QueryStateView
+        isLoading={isLoading}
+        isError={isError}
+        isEmpty={!mergedVideos.length}
+        errorTitle={t("home.trendingFetchErrorTitle")}
+        errorMessage={t("home.trendingFetchErrorMessage")}
+        emptyTitle={t("home.trendingEmptyTitle")}
+        emptyDescription={t("home.trendingEmptyDescription")}
+        onRetry={() => {
+          void trendingQuery.refetch();
+          if (token) {
+            void authFeedQuery.refetch();
+          } else {
+            void localSubscribedVideosQuery.refetch();
+          }
+        }}
+      >
+        <VideoGrid items={mergedVideos} />
+      </QueryStateView>
+    );
   };
 
   const onTabSelect: TabListProps["onTabSelect"] = (_, data) => {
@@ -163,41 +293,42 @@ export const HomePage = (): JSX.Element => {
   };
 
   return (
-    <div className={styles.container}>
-      <div className="mobile-search-wrap" style={{ display: "none" }}>
-        <SearchBar />
-      </div>
-
-      <div className={styles.header}>
-        <Text size={700} weight="bold">
-          ホーム
-        </Text>
+    <div className={`${styles.container} ${sidebarAnimating ? styles.sidebarResponsiveMotion : ""}`}>
+      <div className={styles.tabHeader}>
+        <TabList selectedValue={initialTab} onTabSelect={onTabSelect}>
+          <Tab value="popular">{t("home.popularTab")}</Tab>
+          <Tab value="trending">{t("home.trendingTab")}</Tab>
+        </TabList>
         <Button
           icon={<ArrowClockwise24Regular />}
-          title="更新"
-          aria-label="更新"
+          title={t("home.refresh")}
+          aria-label={t("home.refresh")}
           appearance="subtle"
           onClick={() => void refreshCurrentTab()}
         />
       </div>
-
-      <TabList selectedValue={initialTab} onTabSelect={onTabSelect}>
-        <Tab value="popular">人気動画</Tab>
-        <Tab value="trending">トレンド</Tab>
-      </TabList>
 
       <div className={styles.tabContent}>
         {initialTab === "popular" ? (
           renderPopular()
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
-            <div className={styles.trendCategoryList}>
+            <div
+              className={styles.trendCategoryList}
+              onScroll={(e) => {
+                setIsScrolledLeft(e.currentTarget.scrollLeft > 2);
+              }}
+              style={{
+                "--left-mask-opacity": isScrolledLeft ? 1 : 0,
+              } as React.CSSProperties}
+            >
               {trendCategories.map((cat) => (
                 <Button
                   key={cat}
                   appearance={category === cat ? "primary" : "outline"}
                   className={styles.categoryButton}
                   onClick={() => {
+                    triggerHaptic("click");
                     setSearchParams((prev) => {
                       const next = new URLSearchParams(prev);
                       next.set("category", cat);
@@ -214,12 +345,6 @@ export const HomePage = (): JSX.Element => {
           </div>
         )}
       </div>
-
-      <style>{`
-        @media (max-width: 767px) {
-          .mobile-search-wrap { display: block !important; }
-        }
-      `}</style>
     </div>
   );
 };

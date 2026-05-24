@@ -4,13 +4,13 @@ import {
   Text,
   Input,
   Switch,
-  Select,
+  Dropdown,
+  Option,
   Button,
   Label,
   Card,
   CardHeader,
   Caption1,
-  Slider,
   Dialog,
   DialogSurface,
   DialogBody,
@@ -18,16 +18,22 @@ import {
   DialogContent,
   DialogActions,
 } from "@fluentui/react-components";
-import { useEffect, useId, useRef, useState } from "react";
+import { Dismiss24Regular } from "@fluentui/react-icons";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import { useSettings } from "../hooks/useSettings";
-import type { AccentColor, AnimationStrength, CompanionMode, CornerRadius, QualityMode, StartPage, ThemeMode, UiDensity } from "../hooks/useSettings";
+import type { AccentColor, AnimationStrength, CompanionMode, CornerRadius, LastFmTitleFormatMode, QualityMode, StartPage, ThemeMode } from "../hooks/useSettings";
 import { clearRecentSearches } from "../lib/recentSearch";
 import { clearWatchHistory } from "../lib/watchHistory";
 import { createLocalUser, getCurrentLocalUser, getLocalUsers, setCurrentLocalUser } from "../lib/localUsers";
+import { getLastFmSessionFromToken } from "../lib/lastfm";
+import { isCapacitorRuntime, isElectronRuntime } from "../lib/runtimeEnv";
+import { openExternalUrl } from "../lib/webPlatform";
 
 const isValidHttpUrl = (value: string): boolean => {
   try {
@@ -39,8 +45,41 @@ const isValidHttpUrl = (value: string): boolean => {
 };
 
 const instanceUrlSchema = z.object({
-  instanceUrl: z.string().trim().refine((value) => isValidHttpUrl(value), "有効なURLを入力してください（http/https）。"),
+  instanceUrl: z.string().trim().refine((value) => isValidHttpUrl(value), i18n.t("settings.instanceUrlInvalid")),
 });
+
+const isElectron = isElectronRuntime();
+const isCapacitor = isCapacitorRuntime();
+const electronProxyBaseUrl = import.meta.env.VITE_ELECTRON_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
+const capacitorProxyBaseUrl = import.meta.env.VITE_CAPACITOR_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
+const primaryCompanionUrl = "https://companion.tsub4sa.xyz";
+const fallbackCompanionUrl = "https://proxy.tsub4sa.xyz";
+const firstNonEmpty = (...values: Array<string | undefined>): string => {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+};
+
+const getDefaultCompanionConfig = (): { url: string; secret: string } => {
+  if (isElectron) {
+    return {
+      url: import.meta.env.VITE_ELECTRON_COMPANION_URL || `${electronProxyBaseUrl.replace(/\/+$/, "")}/companion`,
+      secret: import.meta.env.VITE_ELECTRON_COMPANION_SECRET || import.meta.env.VITE_COMPANION_SECRET || "",
+    };
+  }
+  if (isCapacitor) {
+    return {
+      url: import.meta.env.VITE_CAPACITOR_COMPANION_URL || `${capacitorProxyBaseUrl.replace(/\/+$/, "")}/companion`,
+      secret: import.meta.env.VITE_CAPACITOR_COMPANION_SECRET || import.meta.env.VITE_COMPANION_SECRET || "",
+    };
+  }
+
+  return {
+    url: firstNonEmpty(import.meta.env.VITE_COMPANION_URL, primaryCompanionUrl, fallbackCompanionUrl),
+    secret: import.meta.env.VITE_COMPANION_SECRET || "",
+  };
+};
 
 type InstanceUrlFormValues = z.infer<typeof instanceUrlSchema>;
 
@@ -51,7 +90,7 @@ const useStyles = makeStyles({
     gap: "20px",
   },
   overlaySurface: {
-    width: "min(92vw, 760px)",
+    width: "min(calc(100vw - 16px), 760px)",
     maxWidth: "760px",
   },
   overlayBody: {
@@ -72,9 +111,6 @@ const useStyles = makeStyles({
     display: "grid",
     gridTemplateColumns: "1fr",
     gap: "16px",
-    "@media (min-width: 1200px)": {
-      gridTemplateColumns: "1fr 1fr",
-    },
   },
   section: {
     display: "flex",
@@ -90,10 +126,14 @@ const useStyles = makeStyles({
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
+    gap: "12px",
+    flexWrap: "wrap",
   },
   inputRow: {
     display: "flex",
     gap: "8px",
+    width: "100%",
+    flexWrap: "wrap",
   },
   alert: {
     padding: "12px",
@@ -128,9 +168,14 @@ const SectionCard = ({ title, children }: { title: string; children: React.React
 
 export const SettingsPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t, i18n } = useTranslation();
   const navigate = useNavigate();
-  const { settings, setSetting, resetSettings, exportSettings, importSettings } = useSettings();
+  const { settings, setSetting: applySetting, resetSettings, exportSettings, importSettings } = useSettings();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const overlayBodyRef = useRef<HTMLDivElement | null>(null);
+  const overlayScrollTopRef = useRef(0);
+  const pageScrollTopRef = useRef(0);
+  const pendingScrollRestoreRef = useRef(false);
   const instanceUrlForm = useForm<InstanceUrlFormValues>({
     resolver: zodResolver(instanceUrlSchema),
     defaultValues: { instanceUrl: settings.instanceUrl },
@@ -146,22 +191,86 @@ export const SettingsPage = (): JSX.Element => {
     message: "",
   });
   const noticeDialogId = useId();
+  const shouldSkipHistoryBackRef = useRef(false);
 
   const openNoticeDialog = (title: string, message: string): void => {
     setNoticeDialog({ open: true, title, message });
   };
 
+  const setSetting = <K extends keyof typeof settings>(key: K, value: (typeof settings)[K]): void => {
+    overlayScrollTopRef.current = overlayBodyRef.current?.scrollTop ?? overlayScrollTopRef.current;
+    pageScrollTopRef.current = window.scrollY || document.documentElement.scrollTop || 0;
+    pendingScrollRestoreRef.current = true;
+    applySetting(key, value);
+  };
+
+  useLayoutEffect(() => {
+    if (!pendingScrollRestoreRef.current) return;
+    pendingScrollRestoreRef.current = false;
+    if (overlayBodyRef.current) {
+      overlayBodyRef.current.scrollTop = overlayScrollTopRef.current;
+    }
+    const y = pageScrollTopRef.current;
+    if (window.scrollY !== y) {
+      window.scrollTo({ top: y, behavior: "auto" });
+    }
+    requestAnimationFrame(() => {
+      if (overlayBodyRef.current) {
+        overlayBodyRef.current.scrollTop = overlayScrollTopRef.current;
+      }
+      if (window.scrollY !== y) {
+        window.scrollTo({ top: y, behavior: "auto" });
+      }
+    });
+  }, [settings]);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const isLastFmCallback = params.get("lastfm") === "1";
     const token = params.get("token");
+    const hasAuthCallback = !!token && (isLastFmCallback || !isLastFmCallback);
+    const referrerOrigin = (() => {
+      try {
+        return document.referrer ? new URL(document.referrer).origin : "";
+      } catch {
+        return "";
+      }
+    })();
+    if (hasAuthCallback && referrerOrigin && referrerOrigin !== window.location.origin) {
+      shouldSkipHistoryBackRef.current = true;
+    }
+    if (token && isLastFmCallback) {
+      if (!settings.lastFmApiKey.trim() || !settings.lastFmApiSecret.trim()) {
+        openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmCredentialsRequired"));
+        const cleanUrl = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, document.title, cleanUrl);
+        return;
+      }
+      void getLastFmSessionFromToken(settings.lastFmApiKey, settings.lastFmApiSecret, token)
+        .then(({ username, sessionKey }) => {
+          setSetting("lastFmUsername", username);
+          setSetting("lastFmSessionKey", sessionKey);
+          setSetting("lastFmEnabled", true);
+          openNoticeDialog(t("settings.lastFmAuthSuccessTitle"), t("settings.lastFmAuthSuccessMessage", { username }));
+        })
+        .catch((error) => {
+          console.error(error);
+          openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmAuthFailed"));
+        })
+        .finally(() => {
+          const cleanUrl = window.location.pathname + window.location.hash;
+          window.history.replaceState({}, document.title, cleanUrl);
+        });
+      return;
+    }
     if (token) {
       setSetting("token", token);
       // URLからトークンを削除してクリーンにする
       const newUrl = window.location.pathname + window.location.hash;
       window.history.replaceState({}, document.title, newUrl);
-      openNoticeDialog("ログイン成功", "Invidious ログインに成功しました。");
+      openNoticeDialog(t("settings.loginSuccessTitle"), t("settings.loginSuccessMessage"));
     }
-  }, []);
+  }, [setSetting, t]);
 
   const [newChannelId, setNewChannelId] = useState("");
   const [localUsers, setLocalUsers] = useState(getLocalUsers());
@@ -201,6 +310,16 @@ export const SettingsPage = (): JSX.Element => {
     URL.revokeObjectURL(url);
   };
 
+  const openLastFmAuth = (): void => {
+    if (!settings.lastFmApiKey.trim()) {
+      openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmApiKeyRequired"));
+      return;
+    }
+    const callback = `${window.location.origin}${window.location.pathname}?settings=1&lastfm=1`;
+    const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(settings.lastFmApiKey.trim())}&cb=${encodeURIComponent(callback)}`;
+    void openExternalUrl(authUrl);
+  };
+
   const addFavoriteChannel = () => {
     if (!newChannelId.trim()) return;
     if (settings.favoriteShortsChannelIds.includes(newChannelId.trim())) {
@@ -236,53 +355,107 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const closeSettingsOverlay = (): void => {
+    if (shouldSkipHistoryBackRef.current) {
+      navigate("/", { replace: true });
+      return;
+    }
     if (window.history.length > 1) {
       navigate(-1);
       return;
     }
     navigate("/");
   };
+  const defaultLastFmApiKey = import.meta.env.VITE_LASTFM_API_KEY || "";
+  const defaultLastFmApiSecret = import.meta.env.VITE_LASTFM_API_SECRET || "";
 
   return (
     <Dialog open onOpenChange={(_, data) => { if (!data.open) closeSettingsOverlay(); }}>
-      <DialogSurface className={styles.overlaySurface}>
-        <div className={styles.overlayBody}>
+      <DialogSurface className={styles.overlaySurface} data-settings-surface="true">
+        <div
+          className={styles.overlayBody}
+          ref={overlayBodyRef}
+          onScroll={() => {
+            overlayScrollTopRef.current = overlayBodyRef.current?.scrollTop ?? 0;
+          }}
+        >
           <div className={styles.titleRow}>
-            <Text size={700} weight="bold">設定</Text>
-            <Button appearance="subtle" onClick={closeSettingsOverlay}>閉じる</Button>
+            <Text size={700} weight="bold">{t("settings.title")}</Text>
+            <Button
+              appearance="subtle"
+              icon={<Dismiss24Regular />}
+              aria-label={t("common.close")}
+              title={t("common.close")}
+              onClick={closeSettingsOverlay}
+            />
           </div>
 
           <div className={styles.container}>
             <div className={styles.grid}>
-              <SectionCard title="一般">
+              <SectionCard title={t("settings.generalSection")}>
           <div className={styles.field}>
-            <Label>インスタンスURL</Label>
+            <Label>{t("settings.instanceUrlLabel")}</Label>
             <div className={styles.inputRow}>
               <Input
                 style={{ flexGrow: 1 }}
                 value={instanceUrlForm.watch("instanceUrl")}
                 onChange={(_, data) => instanceUrlForm.setValue("instanceUrl", data.value, { shouldValidate: false })}
               />
-              <Button onClick={applyInstanceUrl} appearance="primary">適用</Button>
+              <Button onClick={applyInstanceUrl} appearance="primary">{t("settings.apply")}</Button>
             </div>
             {instanceUrlForm.formState.errors.instanceUrl?.message ? (
               <Caption1 className={styles.errorText}>{instanceUrlForm.formState.errors.instanceUrl.message}</Caption1>
             ) : (
-              <Caption1 className={styles.helperText}>既定値: https://invidious.tsub4sa.xyz</Caption1>
+              <Caption1 className={styles.helperText}>{t("settings.defaultInstanceUrl", { url: "https://invidious.tsub4sa.xyz" })}</Caption1>
             )}
           </div>
 
           <div className={styles.field}>
-            <Label>地域</Label>
-            <Select value={settings.region} onChange={(e) => setSetting("region", e.target.value)}>
-              {["JP","US","KR","GB","DE","FR","TW","CA","AU"].map((region) => (
-                <option key={region} value={region}>{region}</option>
-              ))}
-            </Select>
+            <Label>{t("settings.apiProxyUrlLabel")}</Label>
+            <Input
+              value={settings.apiProxyUrl}
+              onChange={(_, data) => setSetting("apiProxyUrl", data.value)}
+              placeholder="/api-proxy"
+            />
+            <Caption1 className={styles.helperText}>{t("settings.apiProxyUrlDescription")}</Caption1>
           </div>
 
           <div className={styles.field}>
-            <Label>推しチャンネル (ショート巡回用)</Label>
+            <Label>{t("settings.region")}</Label>
+            <Dropdown
+              aria-label={t("settings.region")}
+              value={settings.region}
+              selectedOptions={[settings.region]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("region", data.optionValue);
+              }}
+            >
+              {["JP", "US", "KR", "GB", "DE", "FR", "TW", "CA", "AU"].map((region) => (
+                <Option key={region} value={region}>{region}</Option>
+              ))}
+            </Dropdown>
+          </div>
+
+          <div className={styles.field}>
+            <Label>{t("settings.displayLanguage")}</Label>
+            <Dropdown
+              aria-label={t("settings.displayLanguage")}
+              value={settings.language?.startsWith("ja") ? "ja" : "en"}
+              selectedOptions={[settings.language?.startsWith("ja") ? "ja" : "en"]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                const next = data.optionValue === "ja" ? "ja" : "en";
+                setSetting("language", next);
+                void i18n.changeLanguage(next);
+              }}
+            >
+              <Option value="ja">{t("settings.japanese")}</Option>
+              <Option value="en">English</Option>
+            </Dropdown>
+          </div>
+
+          <div className={styles.field}>
+            <Label>{t("settings.favoriteChannels")}</Label>
             <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
               {settings.favoriteShortsChannelIds.map((id) => (
                 <div key={id} className={styles.inputRow}>
@@ -291,7 +464,7 @@ export const SettingsPage = (): JSX.Element => {
                     onClick={() => removeFavoriteChannel(id)}
                     appearance="subtle"
                   >
-                    削除
+                    {t("settings.remove")}
                   </Button>
                 </div>
               ))}
@@ -301,9 +474,9 @@ export const SettingsPage = (): JSX.Element => {
                 style={{ flexGrow: 1 }}
                 value={newChannelId}
                 onChange={(e, data) => setNewChannelId(data.value)}
-                placeholder="追加するチャンネルID (UC...)"
+                placeholder={t("settings.addChannelPlaceholder")}
               />
-              <Button onClick={addFavoriteChannel} appearance="primary">追加</Button>
+              <Button onClick={addFavoriteChannel} appearance="primary">{t("settings.add")}</Button>
             </div>
             <Button 
               style={{ marginTop: "8px" }}
@@ -311,284 +484,310 @@ export const SettingsPage = (): JSX.Element => {
               onClick={playFavoriteShorts}
               appearance="outline"
             >
-              一括シャッフル再生 ({settings.favoriteShortsChannelIds.length} チャンネル)
+              {t("settings.favoriteShufflePlay", { count: settings.favoriteShortsChannelIds.length })}
             </Button>
             <Caption1 className={styles.helperText}>
-              指定した複数のチャンネルの動画を混ぜてシャッフル再生します。
+              {t("settings.favoriteShuffleHelp")}
             </Caption1>
           </div>
 
           <div className={styles.field}>
-            <Label>最初に表示するページ</Label>
-            <Select value={settings.startPage} onChange={(e) => setSetting("startPage", e.target.value as StartPage)}>
-              <option value="home">Home</option>
-              <option value="trending">Trending</option>
-              <option value="popular">Popular</option>
-              <option value="subscriptions">Subscriptions</option>
-              <option value="search">Search</option>
-            </Select>
+            <Label>{t("settings.startPage")}</Label>
+            <Dropdown
+              aria-label={t("settings.startPage")}
+              value={settings.startPage}
+              selectedOptions={[settings.startPage]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("startPage", data.optionValue as StartPage);
+              }}
+            >
+              <Option value="home">{t("nav.home")}</Option>
+              <Option value="trending">{t("nav.trending")}</Option>
+              <Option value="popular">{t("nav.popular")}</Option>
+              <Option value="subscriptions">{t("nav.subscriptions")}</Option>
+              <Option value="search">{t("nav.search")}</Option>
+            </Dropdown>
           </div>
 
           <div className={styles.field}>
-            <Label>テーマ</Label>
-            <Select value={settings.theme} onChange={(e) => setSetting("theme", e.target.value as ThemeMode)}>
-              <option value="system">System</option>
-              <option value="light">Light</option>
-              <option value="dark">Dark</option>
-              <option value="amoled">Amoled</option>
-            </Select>
+            <Label>{t("settings.theme")}</Label>
+            <Dropdown
+              aria-label={t("settings.theme")}
+              value={settings.theme}
+              selectedOptions={[settings.theme]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("theme", data.optionValue as ThemeMode);
+              }}
+            >
+              <Option value="system">{t("settings.themeSystem")}</Option>
+              <Option value="light">{t("settings.themeLight")}</Option>
+              <Option value="dark">{t("settings.themeDark")}</Option>
+              <Option value="amoled">{t("settings.themeAmoled")}</Option>
+            </Dropdown>
           </div>
 
           <div className={styles.rowField}>
-            <Label>Amoled 強制有効</Label>
+            <Label>{t("settings.forceAmoled")}</Label>
             <Switch checked={settings.amoledEnabled} onChange={(e) => setSetting("amoledEnabled", e.target.checked)} />
           </div>
 
           <div className={styles.field}>
-            <Label>角の丸み</Label>
-            <Select value={settings.cornerRadius} onChange={(e) => setSetting("cornerRadius", e.target.value as CornerRadius)}>
-              <option value="none">None</option>
-              <option value="small">Small</option>
-              <option value="medium">Medium</option>
-              <option value="large">Large</option>
-              <option value="xlarge">Extra Large</option>
-            </Select>
+            <Label>{t("settings.cornerRadius")}</Label>
+            <Dropdown
+              aria-label={t("settings.cornerRadius")}
+              value={settings.cornerRadius}
+              selectedOptions={[settings.cornerRadius]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("cornerRadius", data.optionValue as CornerRadius);
+              }}
+            >
+              <Option value="none">{t("settings.none")}</Option>
+              <Option value="small">{t("settings.small")}</Option>
+              <Option value="medium">{t("settings.medium")}</Option>
+              <Option value="large">{t("settings.large")}</Option>
+              <Option value="xlarge">{t("settings.extraLarge")}</Option>
+            </Dropdown>
           </div>
         </SectionCard>
 
-              <SectionCard title="履歴と検索">
+              <SectionCard title={t("settings.historySearchSection")}>
           <div className={styles.rowField}>
-            <Label>視聴履歴を保存</Label>
+            <Label>{t("settings.saveWatchHistory")}</Label>
             <Switch checked={settings.saveWatchHistory} onChange={(e) => setSetting("saveWatchHistory", e.target.checked)} />
           </div>
           <div className={styles.rowField}>
-            <Label>検索候補を表示</Label>
+            <Label>{t("settings.showSearchSuggestions")}</Label>
             <Switch checked={settings.showSearchSuggestions} onChange={(e) => setSetting("showSearchSuggestions", e.target.checked)} />
           </div>
 
           {isClearHistoryConfirmOpen ? (
             <div className={styles.alert}>
-              <Text weight="semibold">視聴履歴をすべて削除しますか？</Text>
+              <Text weight="semibold">{t("settings.confirmClearWatchHistory")}</Text>
               <div style={{ display: "flex", gap: "8px" }}>
-                <Button size="small" appearance="primary" onClick={() => { clearWatchHistory(); setIsClearHistoryConfirmOpen(false); }}>削除</Button>
-                <Button size="small" appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(false)}>キャンセル</Button>
+                <Button size="small" appearance="primary" onClick={() => { clearWatchHistory(); setIsClearHistoryConfirmOpen(false); }}>{t("settings.delete")}</Button>
+                <Button size="small" appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(false)}>{t("common.cancel")}</Button>
               </div>
             </div>
           ) : (
-            <Button appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(true)}>視聴履歴を削除</Button>
+            <Button appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(true)}>{t("settings.clearWatchHistory")}</Button>
           )}
 
           {isClearSearchConfirmOpen ? (
             <div className={styles.alert}>
-              <Text weight="semibold">検索履歴をすべて削除しますか？</Text>
+              <Text weight="semibold">{t("settings.confirmClearSearchHistory")}</Text>
               <div style={{ display: "flex", gap: "8px" }}>
-                <Button size="small" appearance="primary" onClick={() => { clearRecentSearches(); setIsClearSearchConfirmOpen(false); }}>削除</Button>
-                <Button size="small" appearance="outline" onClick={() => setIsClearSearchConfirmOpen(false)}>キャンセル</Button>
+                <Button size="small" appearance="primary" onClick={() => { clearRecentSearches(); setIsClearSearchConfirmOpen(false); }}>{t("settings.delete")}</Button>
+                <Button size="small" appearance="outline" onClick={() => setIsClearSearchConfirmOpen(false)}>{t("common.cancel")}</Button>
               </div>
             </div>
           ) : (
-            <Button appearance="outline" onClick={() => setIsClearSearchConfirmOpen(true)}>検索履歴を削除</Button>
+            <Button appearance="outline" onClick={() => setIsClearSearchConfirmOpen(true)}>{t("settings.clearSearchHistory")}</Button>
           )}
         </SectionCard>
 
-              <SectionCard title="再生">
-          <div className={styles.rowField}><Label>動画を自動再生</Label><Switch checked={settings.autoplay} onChange={(e) => setSetting("autoplay", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>常にループ</Label><Switch checked={settings.loopVideo} onChange={(e) => setSetting("loopVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>動画プロキシ優先</Label><Switch checked={settings.useProxyVideo} onChange={(e) => setSetting("useProxyVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>再生位置を記憶</Label><Switch checked={settings.rememberPlaybackPosition} onChange={(e) => setSetting("rememberPlaybackPosition", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>ミニプレイヤー</Label><Switch checked={settings.miniPlayer} onChange={(e) => setSetting("miniPlayer", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>最初からシアターモード</Label><Switch checked={settings.theaterMode} onChange={(e) => setSetting("theaterMode", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>次の動画を自動再生</Label><Switch checked={settings.autoplayNextVideo} onChange={(e) => setSetting("autoplayNextVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>最初から字幕表示</Label><Switch checked={settings.showCaptionsByDefault} onChange={(e) => setSetting("showCaptionsByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>オリジナル翻訳を優先</Label><Switch checked={settings.preferOriginalTranslation} onChange={(e) => setSetting("preferOriginalTranslation", e.target.checked)} /></div>
+              <SectionCard title={t("settings.playbackSection")}>
+          <div className={styles.rowField}><Label>{t("settings.autoplay")}</Label><Switch checked={settings.autoplay} onChange={(e) => setSetting("autoplay", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.loopVideo")}</Label><Switch checked={settings.loopVideo} onChange={(e) => setSetting("loopVideo", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.useProxyVideo")}</Label><Switch checked={settings.useProxyVideo} onChange={(e) => setSetting("useProxyVideo", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.rememberPlaybackPosition")}</Label><Switch checked={settings.rememberPlaybackPosition} onChange={(e) => setSetting("rememberPlaybackPosition", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.miniPlayer")}</Label><Switch checked={settings.miniPlayer} onChange={(e) => setSetting("miniPlayer", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.theaterMode")}</Label><Switch checked={settings.theaterMode} onChange={(e) => setSetting("theaterMode", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.autoplayNextVideo")}</Label><Switch checked={settings.autoplayNextVideo} onChange={(e) => setSetting("autoplayNextVideo", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.showCaptionsByDefault")}</Label><Switch checked={settings.showCaptionsByDefault} onChange={(e) => setSetting("showCaptionsByDefault", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.preferOriginalTranslation")}</Label><Switch checked={settings.preferOriginalTranslation} onChange={(e) => setSetting("preferOriginalTranslation", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.hapticFeedback")}</Label><Switch checked={settings.hapticFeedback} onChange={(e) => setSetting("hapticFeedback", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.privacyScreenEnabled")}</Label><Switch checked={settings.privacyScreenEnabled} onChange={(e) => setSetting("privacyScreenEnabled", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.cinematicLighting")}</Label><Switch checked={settings.cinematicLighting} onChange={(e) => setSetting("cinematicLighting", e.target.checked)} /></div>
+          {isCapacitor ? (
+            <>
+              <div className={styles.rowField}><Label>{t("settings.pictureInPictureEnabled")}</Label><Switch checked={settings.pictureInPictureEnabled} onChange={(e) => setSetting("pictureInPictureEnabled", e.target.checked)} /></div>
+              <div className={styles.rowField}><Label>{t("settings.autoEnterPipOnBackground")}</Label><Switch checked={settings.autoEnterPipOnBackground} disabled={!settings.pictureInPictureEnabled} onChange={(e) => setSetting("autoEnterPipOnBackground", e.target.checked)} /></div>
+              <div className={styles.rowField}><Label>{t("settings.backgroundPlaybackEnabled")}</Label><Switch checked={settings.backgroundPlaybackEnabled} onChange={(e) => setSetting("backgroundPlaybackEnabled", e.target.checked)} /></div>
+              <div className={styles.rowField}><Label>{t("settings.androidMediaNotificationEnabled")}</Label><Switch checked={settings.androidMediaNotificationEnabled} onChange={(e) => setSetting("androidMediaNotificationEnabled", e.target.checked)} /></div>
+            </>
+          ) : null}
 
           <div className={styles.field}>
-            <Label>画質</Label>
-            <Select value={settings.quality} onChange={(e) => setSetting("quality", e.target.value as QualityMode)}>
-              <option value="auto">Auto</option>
-              <option value="1080p">1080p</option>
-              <option value="720p">720p</option>
-              <option value="480p">480p</option>
-              <option value="360p">360p</option>
-            </Select>
+            <Label>{t("settings.quality")}</Label>
+            <Dropdown
+              aria-label={t("settings.quality")}
+              value={settings.quality}
+              selectedOptions={[settings.quality]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("quality", data.optionValue as QualityMode);
+              }}
+            >
+              <Option value="auto">Auto</Option>
+              <Option value="1080p">1080p</Option>
+              <Option value="720p">720p</Option>
+              <Option value="480p">480p</Option>
+              <Option value="360p">360p</Option>
+            </Dropdown>
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.defaultAudioTrackLanguage")}</Label>
+            <Dropdown
+              aria-label={t("settings.defaultAudioTrackLanguage")}
+              value={settings.audioTrackLanguage}
+              selectedOptions={[settings.audioTrackLanguage]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("audioTrackLanguage", data.optionValue);
+              }}
+            >
+              <Option value="auto">{t("settings.audioTrackLanguageAuto")}</Option>
+              <Option value="ja">Japanese (ja)</Option>
+              <Option value="en">English (en)</Option>
+            </Dropdown>
           </div>
 
-          <div className={styles.rowField}><Label>音声のみモード</Label><Switch checked={settings.audioOnly} onChange={(e) => setSetting("audioOnly", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>データ節約モード</Label><Switch checked={settings.dataSaver} onChange={(e) => setSetting("dataSaver", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.audioOnly")}</Label><Switch checked={settings.audioOnly} onChange={(e) => setSetting("audioOnly", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.dataSaver")}</Label><Switch checked={settings.dataSaver} onChange={(e) => setSetting("dataSaver", e.target.checked)} /></div>
         </SectionCard>
 
-              <SectionCard title="Watch画面">
-          <div className={styles.rowField}><Label>最初から説明を展開</Label><Switch checked={settings.expandDescriptionByDefault} onChange={(e) => setSetting("expandDescriptionByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>最初からチャプターを展開</Label><Switch checked={settings.expandChaptersByDefault} onChange={(e) => setSetting("expandChaptersByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>最初からコメント展開</Label><Switch checked={settings.expandCommentsByDefault} onChange={(e) => setSetting("expandCommentsByDefault", e.target.checked)} /></div>
+              <SectionCard title={t("settings.watchSection")}>
+          <div className={styles.rowField}><Label>{t("settings.expandDescriptionByDefault")}</Label><Switch checked={settings.expandDescriptionByDefault} onChange={(e) => setSetting("expandDescriptionByDefault", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.hideDescriptionSection")}</Label><Switch checked={settings.hideDescriptionSection} onChange={(e) => setSetting("hideDescriptionSection", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.expandChaptersByDefault")}</Label><Switch checked={settings.expandChaptersByDefault} onChange={(e) => setSetting("expandChaptersByDefault", e.target.checked)} /></div>
+          <div className={styles.rowField}><Label>{t("settings.expandCommentsByDefault")}</Label><Switch checked={settings.expandCommentsByDefault} onChange={(e) => setSetting("expandCommentsByDefault", e.target.checked)} /></div>
         </SectionCard>
 
-              <SectionCard title="外観">
+              <SectionCard title={t("settings.appearanceSection")}>
           <div className={styles.field}>
-            <Label>アクセントカラー</Label>
-            <Select value={settings.accentColor} onChange={(e) => setSetting("accentColor", e.target.value as AccentColor)}>
-              <option value="blue">Blue</option>
-              <option value="red">Red</option>
-              <option value="purple">Purple</option>
-              <option value="green">Green</option>
-              <option value="orange">Orange</option>
-              <option value="pink">Pink</option>
-              <option value="custom">Custom</option>
-            </Select>
+            <Label>{t("settings.accentColor")}</Label>
+            <Dropdown
+              aria-label={t("settings.accentColor")}
+              value={settings.accentColor}
+              selectedOptions={[settings.accentColor]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("accentColor", data.optionValue as AccentColor);
+              }}
+            >
+              <Option value="blue">{t("settings.colorBlue")}</Option>
+              <Option value="red">{t("settings.colorRed")}</Option>
+              <Option value="purple">{t("settings.colorPurple")}</Option>
+              <Option value="green">{t("settings.colorGreen")}</Option>
+              <Option value="orange">{t("settings.colorOrange")}</Option>
+              <Option value="pink">{t("settings.colorPink")}</Option>
+              <Option value="custom">{t("settings.custom")}</Option>
+            </Dropdown>
           </div>
           {settings.accentColor === "custom" ? (
             <div className={styles.field}>
-              <Label>カスタムカラー</Label>
+              <Label>{t("settings.customColor")}</Label>
               <Input value={settings.customAccentColor} onChange={(e, data) => setSetting("customAccentColor", data.value)} />
             </div>
           ) : null}
 
-          <div className={styles.field}>
-            <Label>カード透明度 ({settings.cardOpacity.toFixed(2)})</Label>
-            <Slider
-              min={0.2}
-              max={1}
-              step={0.05}
-              value={settings.cardOpacity}
-              onChange={(_, data) => setSetting("cardOpacity", data.value)}
-            />
-          </div>
-          <div className={styles.field}>
-            <Label>影の強さ ({settings.shadowStrength.toFixed(2)})</Label>
-            <Slider
-              min={0}
-              max={1}
-              step={0.05}
-              value={settings.shadowStrength}
-              onChange={(_, data) => setSetting("shadowStrength", data.value)}
-            />
-          </div>
+          <div className={styles.rowField}><Label>{t("settings.showDesktopSidebar")}</Label><Switch checked={settings.showDesktopSidebar} onChange={(e) => setSetting("showDesktopSidebar", e.target.checked)} /></div>
 
           <div className={styles.field}>
-            <Label>UI密度</Label>
-            <Select value={settings.uiDensity} onChange={(e) => setSetting("uiDensity", e.target.value as UiDensity)}>
-              <option value="compact">Compact</option>
-              <option value="normal">Normal</option>
-              <option value="comfortable">Comfortable</option>
-            </Select>
-          </div>
-
-          <div className={styles.field}>
-            <Label>サムネイル角丸 ({settings.thumbnailRadius}px)</Label>
-            <Slider
-              min={0}
-              max={40}
-              value={settings.thumbnailRadius}
-              onChange={(_, data) => setSetting("thumbnailRadius", data.value)}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <Label>プレイヤー角丸 ({settings.playerRadius}px)</Label>
-            <Slider
-              min={0}
-              max={40}
-              value={settings.playerRadius}
-              onChange={(_, data) => setSetting("playerRadius", data.value)}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <Label>下部ナビ透明度 ({settings.bottomNavOpacity.toFixed(2)})</Label>
-            <Slider
-              min={0.25}
-              max={1}
-              step={0.05}
-              value={settings.bottomNavOpacity}
-              onChange={(_, data) => setSetting("bottomNavOpacity", data.value)}
-            />
-          </div>
-
-          <div className={styles.rowField}><Label>PCサイドバーを表示</Label><Switch checked={settings.showDesktopSidebar} onChange={(e) => setSetting("showDesktopSidebar", e.target.checked)} /></div>
-          <div className={styles.field}>
-            <Label>PC最大幅 ({settings.maxContentWidth}px)</Label>
-            <Slider
-              min={960}
-              max={1920}
-              step={10}
-              value={settings.maxContentWidth}
-              onChange={(_, data) => setSetting("maxContentWidth", data.value)}
-            />
-          </div>
-
-          <div className={styles.field}>
-            <Label>アニメーション強度</Label>
-            <Select value={settings.animationStrength} onChange={(e) => setSetting("animationStrength", e.target.value as AnimationStrength)}>
-              <option value="off">Off</option>
-              <option value="reduced">Reduced</option>
-              <option value="normal">Normal</option>
-            </Select>
+            <Label>{t("settings.animationStrength")}</Label>
+            <Dropdown
+              aria-label={t("settings.animationStrength")}
+              value={settings.animationStrength}
+              selectedOptions={[settings.animationStrength]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("animationStrength", data.optionValue as AnimationStrength);
+              }}
+            >
+              <Option value="off">{t("settings.off")}</Option>
+              <Option value="reduced">{t("settings.reduced")}</Option>
+              <Option value="normal">{t("settings.normal")}</Option>
+            </Dropdown>
           </div>
           <div className={styles.rowField}>
-            <Label>Lenis.js を使う</Label>
+            <Label>{t("settings.useLenis")}</Label>
             <Switch checked={settings.useLenis} onChange={(e) => setSetting("useLenis", e.target.checked)} />
+          </div>
+          <div className={styles.rowField}>
+            <Label>{t("settings.hideShorts") || "Shortsを非表示にする"}</Label>
+            <Switch checked={settings.hideShorts} onChange={(e) => setSetting("hideShorts", e.target.checked)} />
+          </div>
+          <div className={styles.rowField}>
+            <Label>{t("settings.hideMobileNavLabels") || "モバイルナビのテキストを非表示"}</Label>
+            <Switch checked={settings.hideMobileNavLabels} onChange={(e) => setSetting("hideMobileNavLabels", e.target.checked)} />
           </div>
         </SectionCard>
 
-              <SectionCard title="アカウント">
+              <SectionCard title={t("settings.accountSection")}>
           <Text size={200} className={styles.helperText}>
-            OAuth2 を使わず、ローカルユーザーでもチャンネル登録を保存できます。
+            {t("settings.accountDescription")}
           </Text>
           <div className={styles.field}>
-            <Label>ローカルユーザー</Label>
-            <Select value={currentLocalUser.id} onChange={(e) => switchUser(e.target.value)}>
+            <Label>{t("settings.localUser")}</Label>
+            <Dropdown
+              aria-label={t("settings.localUser")}
+              value={currentLocalUser.name}
+              selectedOptions={[currentLocalUser.id]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) switchUser(data.optionValue);
+              }}
+            >
               {localUsers.map((user) => (
-                <option key={user.id} value={user.id}>{user.name}</option>
+                <Option key={user.id} value={user.id} text={user.name}>{user.name}</Option>
               ))}
-            </Select>
+            </Dropdown>
             <div className={styles.inputRow}>
               <Input
                 value={newLocalUserName}
                 onChange={(_, data) => setNewLocalUserName(data.value)}
-                placeholder="新規ユーザー名"
+                placeholder={t("settings.newUserNamePlaceholder")}
                 style={{ flexGrow: 1 }}
               />
-              <Button appearance="outline" onClick={createUser}>追加</Button>
+              <Button appearance="outline" onClick={createUser}>{t("settings.add")}</Button>
             </div>
             <Caption1 className={styles.helperText}>
-              現在のユーザー: {currentLocalUser.name}
+              {t("settings.currentUser", { name: currentLocalUser.name })}
             </Caption1>
           </div>
           {settings.token ? (
             <div className={styles.alert} style={{ backgroundColor: tokens.colorStatusSuccessBackground1, borderColor: tokens.colorStatusSuccessBorder1 }}>
-              <Text weight="semibold">ログイン済み</Text>
-              <Caption1>トークンが設定されています。</Caption1>
-              <Button appearance="outline" onClick={() => setSetting("token", "")}>ログアウト</Button>
+              <Text weight="semibold">{t("settings.loggedIn")}</Text>
+              <Caption1>{t("settings.tokenConfigured")}</Caption1>
+              <Button appearance="outline" onClick={() => setSetting("token", "")}>{t("settings.logout")}</Button>
             </div>
           ) : (
-            <Button appearance="primary" onClick={handleInvidiousLogin}>Invidious でログイン (OAuth2)</Button>
+            <Button appearance="primary" onClick={handleInvidiousLogin}>{t("settings.loginWithInvidious")}</Button>
           )}
         </SectionCard>
 
-              <SectionCard title="Invidious Companion">
+              <SectionCard title={t("settings.companionSection")}>
           <Text size={200} className={styles.helperText}>
-            動画の復号化とプロキシを行う外部サーバーの設定です。再生エラーが発生する場合に使用してください。
+            {t("settings.companionDescription")}
           </Text>
           <div className={styles.field}>
-            <Label>Companion モード</Label>
-            <Select 
-              value={settings.companionMode} 
-              onChange={(e) => {
-                const mode = e.target.value as CompanionMode;
+            <Label>{t("settings.companionMode")}</Label>
+            <Dropdown
+              aria-label={t("settings.companionMode")}
+              value={settings.companionMode === "default" ? t("settings.companionDefault") : t("settings.companionCustom")}
+              selectedOptions={[settings.companionMode]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (!data.optionValue) return;
+                const mode = data.optionValue as CompanionMode;
                 setSetting("companionMode", mode);
                 if (mode === "default") {
-                  setSetting("companionUrl", import.meta.env.VITE_COMPANION_URL || "https://companion.tsub4sa.xyz");
-                  setSetting("companionSecret", import.meta.env.VITE_COMPANION_SECRET || "");
+                  const defaults = getDefaultCompanionConfig();
+                  setSetting("companionUrl", defaults.url);
+                  setSetting("companionSecret", defaults.secret);
                 }
               }}
             >
-              <option value="default">Default (インスタンス推奨)</option>
-              <option value="custom">カスタム (自前サーバー等)</option>
-            </Select>
+              <Option value="default">{t("settings.companionDefault")}</Option>
+              <Option value="custom">{t("settings.companionCustom")}</Option>
+            </Dropdown>
           </div>
           
           <div className={styles.field}>
-            <Label>Companion URL</Label>
+            <Label>{t("settings.companionUrl")}</Label>
             <Input
               value={settings.companionUrl}
               onChange={(e, data) => setSetting("companionUrl", data.value)}
@@ -597,7 +796,7 @@ export const SettingsPage = (): JSX.Element => {
             />
           </div>
           <div className={styles.field}>
-            <Label>Secret Key (Bearer Token)</Label>
+            <Label>{t("settings.companionSecret")}</Label>
             <Input
               type="password"
               value={settings.companionSecret}
@@ -608,17 +807,129 @@ export const SettingsPage = (): JSX.Element => {
           </div>
         </SectionCard>
 
-              <SectionCard title="詳細設定">
+              <SectionCard title={t("settings.lastFmSection")}>
+          <Text size={200} className={styles.helperText}>
+            {t("settings.lastFmDescription")}
+          </Text>
+          <div className={styles.rowField}>
+            <Label>{t("settings.lastFmEnabled")}</Label>
+            <Switch checked={settings.lastFmEnabled} onChange={(e) => setSetting("lastFmEnabled", e.target.checked)} />
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.lastFmApiKey")}</Label>
+            <div className={styles.inputRow}>
+              <Input
+                value={settings.lastFmApiKey}
+                onChange={(_, data) => setSetting("lastFmApiKey", data.value)}
+                placeholder="LASTFM_API_KEY"
+                style={{ flexGrow: 1 }}
+              />
+              <Button
+                appearance="outline"
+                disabled={!defaultLastFmApiKey}
+                onClick={() => setSetting("lastFmApiKey", defaultLastFmApiKey)}
+              >
+                {t("settings.lastFmUseDefaultApiKey")}
+              </Button>
+            </div>
+            <Caption1 className={styles.helperText}>
+              {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyMissing")}
+            </Caption1>
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.lastFmApiSecret")}</Label>
+            <div className={styles.inputRow}>
+              <Input
+                type="password"
+                value={settings.lastFmApiSecret}
+                onChange={(_, data) => setSetting("lastFmApiSecret", data.value)}
+                placeholder="LASTFM_API_SECRET"
+                style={{ flexGrow: 1 }}
+              />
+              <Button
+                appearance="outline"
+                disabled={!defaultLastFmApiSecret}
+                onClick={() => setSetting("lastFmApiSecret", defaultLastFmApiSecret)}
+              >
+                {t("settings.lastFmUseDefaultApiSecret")}
+              </Button>
+            </div>
+            <Caption1 className={styles.helperText}>
+              {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretMissing")}
+            </Caption1>
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.lastFmSessionKey")}</Label>
+            <Input
+              type="password"
+              value={settings.lastFmSessionKey}
+              onChange={(_, data) => setSetting("lastFmSessionKey", data.value)}
+              placeholder="LASTFM_SESSION_KEY"
+            />
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.lastFmUsername")}</Label>
+            <Input
+              value={settings.lastFmUsername}
+              onChange={(_, data) => setSetting("lastFmUsername", data.value)}
+              placeholder="your_lastfm_name"
+            />
+          </div>
+          <div className={styles.rowField}>
+            <Label>{t("settings.lastFmScrobbleEnabled")}</Label>
+            <Switch checked={settings.lastFmScrobbleEnabled} onChange={(e) => setSetting("lastFmScrobbleEnabled", e.target.checked)} />
+          </div>
+          <div className={styles.field}>
+            <Label>{t("settings.lastFmTitleFormatMode")}</Label>
+            <Dropdown
+              aria-label={t("settings.lastFmTitleFormatMode")}
+              value={settings.lastFmTitleFormatMode}
+              selectedOptions={[settings.lastFmTitleFormatMode]}
+              inlinePopup
+              onOptionSelect={(_, data) => {
+                if (data.optionValue) setSetting("lastFmTitleFormatMode", data.optionValue as LastFmTitleFormatMode);
+              }}
+            >
+              <Option value="raw">{t("settings.lastFmTitleFormatRaw")}</Option>
+              <Option value="clean">{t("settings.lastFmTitleFormatClean")}</Option>
+            </Dropdown>
+          </div>
+          {settings.lastFmTitleFormatMode === "clean" ? (
+            <>
+              <div className={styles.rowField}>
+                <Label>{t("settings.lastFmTrimArtistPrefix")}</Label>
+                <Switch checked={settings.lastFmTrimArtistPrefix} onChange={(e) => setSetting("lastFmTrimArtistPrefix", e.target.checked)} />
+              </div>
+              <div className={styles.rowField}>
+                <Label>{t("settings.lastFmTrimFeaturingSuffix")}</Label>
+                <Switch checked={settings.lastFmTrimFeaturingSuffix} onChange={(e) => setSetting("lastFmTrimFeaturingSuffix", e.target.checked)} />
+              </div>
+              <div className={styles.rowField}>
+                <Label>{t("settings.lastFmTrimBracketTags")}</Label>
+                <Switch checked={settings.lastFmTrimBracketTags} onChange={(e) => setSetting("lastFmTrimBracketTags", e.target.checked)} />
+              </div>
+              <div className={styles.rowField}>
+                <Label>{t("settings.lastFmTrimDashTags")}</Label>
+                <Switch checked={settings.lastFmTrimDashTags} onChange={(e) => setSetting("lastFmTrimDashTags", e.target.checked)} />
+              </div>
+            </>
+          ) : null}
+          <Button appearance="outline" onClick={openLastFmAuth}>
+            {t("settings.lastFmOpenAuth")}
+          </Button>
+        </SectionCard>
+
+              <SectionCard title={t("settings.advancedSection")}>
 
           <div className={styles.field}>
-            <Label>Bearer Token</Label>
-            <Input value={settings.token} onChange={(e, data) => setSetting("token", data.value)} placeholder="任意" />
-            <Caption1 className={styles.helperText}>通常は「アカウント」セクションの OAuth ログインを推奨します。</Caption1>
+            <Label>{t("settings.bearerToken")}</Label>
+            <Input value={settings.token} onChange={(e, data) => setSetting("token", data.value)} placeholder={t("settings.optional")} />
+            <Caption1 className={styles.helperText}>{t("settings.oauthRecommended")}</Caption1>
           </div>
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            <Button onClick={handleExport} appearance="outline">設定を書き出し</Button>
-            <Button onClick={() => fileInputRef.current?.click()} appearance="outline">設定を読み込み</Button>
+            <Button onClick={handleExport} appearance="outline">{t("settings.exportSettings")}</Button>
+            <Button onClick={() => fileInputRef.current?.click()} appearance="outline">{t("settings.importSettings")}</Button>
             <input
               ref={fileInputRef}
               type="file"
@@ -630,9 +941,9 @@ export const SettingsPage = (): JSX.Element => {
                 const text = await file.text();
                 const result = importSettings(text);
                 if (result.ok) {
-                  openNoticeDialog("読み込み成功", "設定を読み込みました。");
+                  openNoticeDialog(t("settings.importSuccessTitle"), t("settings.importSuccessMessage"));
                 } else {
-                  openNoticeDialog("読み込み失敗", result.error || "設定を読み込めませんでした。");
+                  openNoticeDialog(t("settings.importFailedTitle"), result.error || t("settings.importFailedMessage"));
                 }
               }}
             />
@@ -640,7 +951,7 @@ export const SettingsPage = (): JSX.Element => {
 
           {isResetConfirmOpen ? (
             <div className={styles.alert}>
-              <Text weight="semibold">設定を初期化しますか？</Text>
+              <Text weight="semibold">{t("settings.confirmReset")}</Text>
               <div style={{ display: "flex", gap: "8px" }}>
                 <Button
                   size="small"
@@ -651,13 +962,13 @@ export const SettingsPage = (): JSX.Element => {
                     setIsResetConfirmOpen(false);
                   }}
                 >
-                  初期化
+                  {t("settings.reset")}
                 </Button>
-                <Button size="small" appearance="outline" onClick={() => setIsResetConfirmOpen(false)}>キャンセル</Button>
+                <Button size="small" appearance="outline" onClick={() => setIsResetConfirmOpen(false)}>{t("common.cancel")}</Button>
               </div>
             </div>
           ) : (
-            <Button appearance="outline" onClick={() => setIsResetConfirmOpen(true)}>設定を初期化</Button>
+            <Button appearance="outline" onClick={() => setIsResetConfirmOpen(true)}>{t("settings.resetSettings")}</Button>
           )}
               </SectionCard>
             </div>
@@ -677,7 +988,7 @@ export const SettingsPage = (): JSX.Element => {
                 <DialogContent id={`${noticeDialogId}-content`}>{noticeDialog.message}</DialogContent>
                 <DialogActions>
                   <Button appearance="primary" onClick={() => setNoticeDialog((prev) => ({ ...prev, open: false }))}>
-                    閉じる
+                    {t("common.close")}
                   </Button>
                 </DialogActions>
               </DialogBody>

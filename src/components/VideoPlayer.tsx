@@ -5,7 +5,6 @@ import {
   Button,
   makeStyles,
   tokens,
-  Card,
 } from "@fluentui/react-components";
 import screenfull from "screenfull";
 import { useTranslation } from "react-i18next";
@@ -14,6 +13,12 @@ import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib
 import { togglePictureInPicture, vibrate } from "../lib/webPlatform";
 import { useSettingsStore } from "../store/settingsStore";
 import { notifyError } from "../lib/notifications";
+import { setNativeNowPlaying, setNativePlaybackState } from "../lib/nativePlayback";
+import { isCapacitorRuntime } from "../lib/runtimeEnv";
+import {
+  clearBackgroundPlaybackNotification,
+  showBackgroundPlaybackNotification,
+} from "../lib/capacitorSpecial";
 
 type ShakaRuntime = typeof import("shaka-player/dist/shaka-player.ui.js").default;
 type HlsRuntime = typeof import("hls.js").default;
@@ -33,14 +38,19 @@ const loadPlayerRuntime = async (): Promise<{ shaka: ShakaRuntime; Hls: HlsRunti
   return playerRuntimePromise;
 };
 
+const TAB_INACTIVE_DISABLE_DELAY_MS = 30_000;
+
 interface VideoPlayerProps {
   video: VideoDetails;
   baseUrl: string;
   initialPositionSeconds?: number;
+  externalSeekSeconds?: number | null;
   onPositionChange?: (seconds: number) => void;
+  onPlay?: () => void;
   onEnded?: () => void;
   autoplay?: boolean;
   isShorts?: boolean;
+  miniMode?: boolean;
 }
 
 const useStyles = makeStyles({
@@ -49,12 +59,20 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
     gap: "0",
-    overflow: "hidden",
+    overflow: "visible",
+    borderRadius: "var(--player-radius)",
+    border: `1px solid ${tokens.colorNeutralStroke2}`,
+    backgroundColor: tokens.colorNeutralBackground1,
+    "@media (max-width: 767px)": {
+      borderTopLeftRadius: "0",
+      borderTopRightRadius: "0",
+    },
   },
   surfaceWrap: {
     position: "relative",
     width: "100%",
     backgroundColor: "black",
+    zIndex: 0,
   },
   videoContainer: {
     width: "100%",
@@ -94,18 +112,27 @@ export const VideoPlayer = ({
   video,
   baseUrl,
   initialPositionSeconds,
+  externalSeekSeconds,
   onPositionChange,
+  onPlay,
   onEnded,
   autoplay: autoplayProp,
   isShorts,
+  miniMode = false,
 }: VideoPlayerProps): JSX.Element => {
   const styles = useStyles();
   const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const onPositionChangeRef = useRef(onPositionChange);
   const onEndedRef = useRef(onEnded);
+  const onPlayRef = useRef(onPlay);
+  const hiddenTimerRef = useRef<number | null>(null);
   const [playbackError, setPlaybackError] = useState<string>("");
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [cinematicGlowColor, setCinematicGlowColor] = useState("rgba(0, 0, 0, 0)");
+  const [isTabActiveForGlow, setIsTabActiveForGlow] = useState(true);
+  const shouldKeepPlayingInBackgroundRef = useRef(false);
 
   useEffect(() => {
     onPositionChangeRef.current = onPositionChange;
@@ -114,14 +141,26 @@ export const VideoPlayer = ({
   useEffect(() => {
     onEndedRef.current = onEnded;
   }, [onEnded]);
+  useEffect(() => {
+    onPlayRef.current = onPlay;
+  }, [onPlay]);
   
   const settingsAutoplay = useSettingsStore((state) => state.autoplay);
   const autoplay = autoplayProp ?? settingsAutoplay;
+  const isLiveLike = !!video.liveNow || !!video.isUpcoming;
   const loopVideo = useSettingsStore((state) => state.loopVideo);
   const quality = useSettingsStore((state) => state.quality);
+  const audioTrackLanguage = useSettingsStore((state) => state.audioTrackLanguage);
   const audioOnly = useSettingsStore((state) => state.audioOnly);
   const dataSaver = useSettingsStore((state) => state.dataSaver);
   const companionUrl = useSettingsStore((state) => state.companionUrl);
+  const hapticFeedback = useSettingsStore((state) => state.hapticFeedback);
+  const cinematicLighting = useSettingsStore((state) => state.cinematicLighting);
+  const pictureInPictureEnabled = useSettingsStore((state) => state.pictureInPictureEnabled);
+  const autoEnterPipOnBackground = useSettingsStore((state) => state.autoEnterPipOnBackground);
+  const backgroundPlaybackEnabled = useSettingsStore((state) => state.backgroundPlaybackEnabled);
+  const androidMediaNotificationEnabled = useSettingsStore((state) => state.androidMediaNotificationEnabled);
+  const theme = useSettingsStore((state) => state.theme);
   const volume = useSettingsStore((state) => state.volume);
   const muted = useSettingsStore((state) => state.muted);
   const setVolume = useSettingsStore((state) => state.setVolume);
@@ -155,20 +194,145 @@ export const VideoPlayer = ({
   }, []);
 
   const manifestUrl = useMemo(() => {
+    if (isLiveLike && hlsUrl) return hlsUrl;
     // iOS Safari prefers HLS and often fails with DASH via MSE
     if (isIOS && hlsUrl) return hlsUrl;
     return dashUrl || hlsUrl || stream?.url;
-  }, [isIOS, dashUrl, hlsUrl, stream?.url]);
+  }, [isLiveLike, isIOS, dashUrl, hlsUrl, stream?.url]);
 
   const poster = resolveMediaUrl(pickPosterThumbnail(video.videoThumbnails)?.url, baseUrl);
   const embedUrl = baseUrl
     ? `${baseUrl.replace(/\/+$/, "")}/embed/${video.videoId}`
     : `https://www.youtube-nocookie.com/embed/${video.videoId}`;
+  const prefersDark = typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches;
+  const isDarkTheme = theme === "dark" || (theme === "system" && prefersDark);
+  const cinematicLightingEnabled = cinematicLighting && isDarkTheme && isTabActiveForGlow && !audioOnly;
 
   useEffect(() => {
+    if (miniMode) return;
     if (!playbackError) return;
     notifyError(playbackError);
-  }, [playbackError]);
+  }, [playbackError, miniMode]);
+
+  useEffect(() => {
+    const onVisibilityChange = (): void => {
+      if (document.visibilityState === "visible") {
+        if (hiddenTimerRef.current) {
+          window.clearTimeout(hiddenTimerRef.current);
+          hiddenTimerRef.current = null;
+        }
+        setIsTabActiveForGlow(true);
+        return;
+      }
+
+      if (hiddenTimerRef.current) return;
+      hiddenTimerRef.current = window.setTimeout(() => {
+        setIsTabActiveForGlow(false);
+        hiddenTimerRef.current = null;
+      }, TAB_INACTIVE_DISABLE_DELAY_MS);
+    };
+
+    onVisibilityChange();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      if (hiddenTimerRef.current) {
+        window.clearTimeout(hiddenTimerRef.current);
+        hiddenTimerRef.current = null;
+      }
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const videoElement = videoRef.current;
+    if (!videoElement || !cinematicLightingEnabled) {
+      setCinematicGlowColor("rgba(0, 0, 0, 0)");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx) return;
+
+    let cancelled = false;
+    let hasSampledColor = false;
+    const fallbackGlow =
+      getComputedStyle(document.documentElement).getPropertyValue("--app-accent").trim() || "rgba(42, 140, 255, 0.45)";
+    const sampleFrame = (): void => {
+      if (cancelled || videoElement.paused || videoElement.ended || videoElement.readyState < 2) return;
+      try {
+        const sampleSize = 24;
+        canvas.width = sampleSize;
+        canvas.height = sampleSize;
+        ctx.drawImage(videoElement, 0, 0, sampleSize, sampleSize);
+        const { data } = ctx.getImageData(0, 0, sampleSize, sampleSize);
+        let r = 0;
+        let g = 0;
+        let b = 0;
+        let count = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          r += data[i];
+          g += data[i + 1];
+          b += data[i + 2];
+          count += 1;
+        }
+        if (count > 0) {
+          const avgR = Math.round(r / count);
+          const avgG = Math.round(g / count);
+          const avgB = Math.round(b / count);
+          setCinematicGlowColor(`rgba(${avgR}, ${avgG}, ${avgB}, 0.45)`);
+          hasSampledColor = true;
+        }
+      } catch {
+        if (!hasSampledColor) {
+          setCinematicGlowColor(fallbackGlow);
+        }
+      }
+    };
+
+    setCinematicGlowColor(fallbackGlow);
+    sampleFrame();
+    const intervalId = window.setInterval(sampleFrame, 500);
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [video.videoId, cinematicLightingEnabled]);
+
+  useEffect(() => {
+    if (!isCapacitorRuntime()) return;
+
+    const onVisibilityChange = () => {
+      const videoElement = videoRef.current;
+      if (!videoElement) return;
+
+      if (document.visibilityState === "hidden") {
+        shouldKeepPlayingInBackgroundRef.current = backgroundPlaybackEnabled && !videoElement.paused && !videoElement.ended;
+        if (!shouldKeepPlayingInBackgroundRef.current) return;
+        void showBackgroundPlaybackNotification(video.title, video.author || "InverView");
+
+        window.setTimeout(() => {
+          const latestVideo = videoRef.current;
+          if (!latestVideo || document.visibilityState !== "hidden") return;
+          if (!backgroundPlaybackEnabled) return;
+          if (!latestVideo.paused || latestVideo.ended) return;
+          void latestVideo.play().catch(() => {
+            // Some devices/webviews still block background resume.
+          });
+        }, 180);
+        return;
+      }
+
+      shouldKeepPlayingInBackgroundRef.current = false;
+      void clearBackgroundPlaybackNotification();
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      void clearBackgroundPlaybackNotification();
+    };
+  }, [backgroundPlaybackEnabled, video.title, video.author]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -193,21 +357,48 @@ export const VideoPlayer = ({
     videoElement.style.height = "100%";
     videoElement.poster = poster;
     videoElement.autoplay = autoplay;
-    videoElement.loop = loopVideo;
+    videoElement.loop = loopVideo && !isLiveLike;
     videoElement.playsInline = true;
     videoElement.volume = volume;
     videoElement.muted = muted;
+    videoRef.current = videoElement;
     containerRef.current.appendChild(videoElement);
 
     const onTogglePip = () => {
+      if (!pictureInPictureEnabled) return;
       void togglePictureInPicture(videoElement);
     };
     const onToggleFullscreen = () => {
       if (!containerRef.current || !screenfull.isEnabled) return;
       void screenfull.toggle(containerRef.current);
     };
+    const onNativeMediaControl = (event: Event) => {
+      const customEvent = event as CustomEvent<{ command?: string } | string>;
+      const detail = customEvent.detail;
+      let command: string | undefined;
+      if (typeof detail === "string") {
+        try {
+          const parsed = JSON.parse(detail) as { command?: string };
+          command = parsed.command;
+        } catch {
+          command = undefined;
+        }
+      } else {
+        command = detail?.command;
+      }
+      if (command === "play") {
+        void videoElement.play().catch(() => {
+          // no-op
+        });
+        return;
+      }
+      if (command === "pause") {
+        videoElement.pause();
+      }
+    };
     window.addEventListener("inverview:toggle-pip", onTogglePip as EventListener);
     window.addEventListener("inverview:toggle-fullscreen", onToggleFullscreen as EventListener);
+    window.addEventListener("inverview:native-media-control", onNativeMediaControl as EventListener);
 
     const onFullscreenChange = () => {
       setIsFullscreen(screenfull.isEnabled ? screenfull.isFullscreen : false);
@@ -241,22 +432,28 @@ export const VideoPlayer = ({
       navigator.mediaSession.setActionHandler("pause", () => {
         videoElement.pause();
       });
-      navigator.mediaSession.setActionHandler("seekbackward", (details) => {
-        const seekOffset = details.seekOffset ?? 10;
-        videoElement.currentTime = Math.max(videoElement.currentTime - seekOffset, 0);
-      });
-      navigator.mediaSession.setActionHandler("seekforward", (details) => {
-        const seekOffset = details.seekOffset ?? 10;
-        videoElement.currentTime = Math.min(
-          videoElement.currentTime + seekOffset,
-          Number.isFinite(videoElement.duration) ? videoElement.duration : videoElement.currentTime + seekOffset,
-        );
-      });
-      navigator.mediaSession.setActionHandler("seekto", (details) => {
-        if (typeof details.seekTime === "number") {
-          videoElement.currentTime = details.seekTime;
-        }
-      });
+      if (!isLiveLike) {
+        navigator.mediaSession.setActionHandler("seekbackward", (details) => {
+          const seekOffset = details.seekOffset ?? 10;
+          videoElement.currentTime = Math.max(videoElement.currentTime - seekOffset, 0);
+        });
+        navigator.mediaSession.setActionHandler("seekforward", (details) => {
+          const seekOffset = details.seekOffset ?? 10;
+          videoElement.currentTime = Math.min(
+            videoElement.currentTime + seekOffset,
+            Number.isFinite(videoElement.duration) ? videoElement.duration : videoElement.currentTime + seekOffset,
+          );
+        });
+        navigator.mediaSession.setActionHandler("seekto", (details) => {
+          if (typeof details.seekTime === "number") {
+            videoElement.currentTime = details.seekTime;
+          }
+        });
+      } else {
+        navigator.mediaSession.setActionHandler("seekbackward", null);
+        navigator.mediaSession.setActionHandler("seekforward", null);
+        navigator.mediaSession.setActionHandler("seekto", null);
+      }
       try {
         navigator.mediaSession.setActionHandler("enterpictureinpicture" as MediaSessionAction, async () => {
           await togglePictureInPicture(videoElement);
@@ -308,16 +505,19 @@ export const VideoPlayer = ({
 
         if (containerRef.current) {
           ui = new (shaka as any).ui.Overlay(player, containerRef.current, videoElement);
+          const accentColor = getComputedStyle(document.documentElement)
+            .getPropertyValue("--app-accent")
+            .trim() || "#2a8cff";
           
           const uiConfig = {
             seekBarColors: {
               base: 'rgba(255, 255, 255, 0.3)',
               buffered: 'rgba(255, 255, 255, 0.5)',
-              played: '#2a8cff',
+              played: accentColor,
             },
             volumeBarColors: {
               base: 'rgba(255, 255, 255, 0.3)',
-              level: '#2a8cff',
+              level: accentColor,
             }
           };
           ui.configure(uiConfig);
@@ -332,10 +532,14 @@ export const VideoPlayer = ({
         });
 
         onTimeUpdate = () => {
+          if (videoElement) {
+            (window as any).lastPlaybackPosition = videoElement.currentTime;
+            (window as any).lastPlaybackVideoId = video.videoId;
+          }
           if (!isCancelled && onPositionChangeRef.current) {
             onPositionChangeRef.current(videoElement.currentTime);
           }
-          if (canUseMediaSession && Number.isFinite(videoElement.duration) && videoElement.duration > 0) {
+          if (!isLiveLike && canUseMediaSession && Number.isFinite(videoElement.duration) && videoElement.duration > 0) {
             navigator.mediaSession.setPositionState({
               duration: videoElement.duration,
               playbackRate: videoElement.playbackRate,
@@ -346,15 +550,21 @@ export const VideoPlayer = ({
 
         onVideoEnded = () => {
           if (!isCancelled && onEndedRef.current) onEndedRef.current();
-          if (!isCancelled) vibrate(40);
+          if (!isCancelled && hapticFeedback) vibrate(40);
         };
 
         onPlay = () => {
+          if (!isCancelled && onPlayRef.current) onPlayRef.current();
           if (canUseMediaSession) navigator.mediaSession.playbackState = "playing";
+          void setNativePlaybackState(true, pictureInPictureEnabled && autoEnterPipOnBackground, backgroundPlaybackEnabled);
+          if (!miniMode) {
+            window.dispatchEvent(new CustomEvent("inverview:main-player-playing"));
+          }
         };
 
         onPause = () => {
           if (canUseMediaSession) navigator.mediaSession.playbackState = "paused";
+          void setNativePlaybackState(false, pictureInPictureEnabled && autoEnterPipOnBackground, backgroundPlaybackEnabled);
         };
 
         onVolumeChange = () => {
@@ -369,17 +579,42 @@ export const VideoPlayer = ({
         videoElement.addEventListener("pause", onPause);
         videoElement.addEventListener("volumechange", onVolumeChange);
 
+        if (androidMediaNotificationEnabled) {
+          void setNativeNowPlaying({
+            enabled: true,
+            title: video.title,
+            artist: video.author,
+            artworkUrl: poster,
+            playbackUrl: manifestUrl || stream?.url,
+            durationSeconds: Number.isFinite(videoElement.duration) ? videoElement.duration : undefined,
+            positionSeconds: videoElement.currentTime,
+            playing: !videoElement.paused,
+          });
+        } else {
+          void setNativeNowPlaying({ enabled: false });
+        }
+
         if (manifestUrl) {
-          // If manifestUrl is HLS and we are on iOS, Shaka will automatically use native HLS if configured or support it via polyfill.
-          // For iOS, we can also try to enable native HLS playback in Shaka configuration.
           player.configure({
             streaming: {
               useNativeHlsOnSafari: true,
             }
           });
 
-          await player.load(manifestUrl, initialPositionSeconds);
+          let startPosition = initialPositionSeconds;
+          if ((window as any).lastPlaybackVideoId === video.videoId && typeof (window as any).lastPlaybackPosition === "number") {
+            startPosition = (window as any).lastPlaybackPosition;
+          }
+          await player.load(manifestUrl, startPosition);
           if (isCancelled) return;
+
+          if (audioTrackLanguage && audioTrackLanguage !== "auto") {
+            try {
+              (player as any).selectAudioLanguage?.(audioTrackLanguage);
+            } catch {
+              // Ignore if the requested language does not exist for this stream.
+            }
+          }
           
           if (autoplay) {
             videoElement.play().catch((err) => {
@@ -430,24 +665,64 @@ export const VideoPlayer = ({
           // unsupported action name
         }
       }
+      void setNativePlaybackState(false, false, backgroundPlaybackEnabled);
+      void setNativeNowPlaying({ enabled: false });
       window.removeEventListener("inverview:toggle-pip", onTogglePip as EventListener);
       window.removeEventListener("inverview:toggle-fullscreen", onToggleFullscreen as EventListener);
+      window.removeEventListener("inverview:native-media-control", onNativeMediaControl as EventListener);
       if (screenfull.isEnabled) {
         screenfull.off("change", onFullscreenChange);
       }
       if (containerRef.current) containerRef.current.innerHTML = "";
+      videoRef.current = null;
     };
-  }, [video.videoId, video.title, video.author, manifestUrl, autoplay, loopVideo, poster]);
+  }, [
+    video.videoId,
+    video.title,
+    video.author,
+    manifestUrl,
+    autoplay,
+    loopVideo,
+    poster,
+    isLiveLike,
+    hapticFeedback,
+    audioTrackLanguage,
+    pictureInPictureEnabled,
+    autoEnterPipOnBackground,
+    backgroundPlaybackEnabled,
+    androidMediaNotificationEnabled,
+  ]);
 
-  const PlayerWrapper = isShorts ? "div" : Card;
+  useEffect(() => {
+    if (typeof externalSeekSeconds !== "number") return;
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+    const maxDuration = Number.isFinite(videoElement.duration) ? videoElement.duration : Number.MAX_SAFE_INTEGER;
+    videoElement.currentTime = Math.max(0, Math.min(externalSeekSeconds, maxDuration));
+  }, [externalSeekSeconds]);
+
+  if (miniMode) {
+    return (
+      <div
+        style={{
+          width: "100%",
+          aspectRatio: "16 / 9",
+          backgroundColor: "black",
+          overflow: "hidden",
+          borderRadius: "8px",
+        }}
+      >
+        <div ref={containerRef} className={styles.videoContainer} />
+      </div>
+    );
+  }
 
   return (
-    <PlayerWrapper 
-      {...(isShorts ? {} : { appearance: "outline" })} 
+    <div
       className={isShorts ? "" : styles.container}
       style={isShorts ? { width: "100%", height: "100%", display: "flex", flexDirection: "column", backgroundColor: "transparent" } : {}}
     >
-      {audioOnly ? (
+      {audioOnly && !miniMode ? (
         <div className={styles.audioOnlyWrap}>
           <Text size={200} style={{ color: tokens.colorNeutralForeground3, marginBottom: "8px" }}>
             音声のみモード
@@ -467,13 +742,17 @@ export const VideoPlayer = ({
             maxWidth: "100%",
             maxHeight: "100%",
             objectFit: "contain",
+            boxShadow: cinematicLightingEnabled
+              ? `0 0 40px 12px ${cinematicGlowColor}, 0 0 90px 24px ${cinematicGlowColor}`
+              : "none",
+            transition: "box-shadow 220ms ease",
           }}
         >
           <div ref={containerRef} className={styles.videoContainer} />
         </div>
       )}
 
-      {playbackError && (
+      {!miniMode && playbackError && (
         <div className={styles.contentArea}>
           <Text className={styles.errorText}>
             {playbackError}
@@ -519,6 +798,6 @@ export const VideoPlayer = ({
           </div>
         </div>
       )}
-    </PlayerWrapper>
+    </div>
   );
 };

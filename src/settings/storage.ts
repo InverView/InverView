@@ -15,6 +15,11 @@ export const mergeSettings = (raw: unknown): AppSettings => {
   const legacyInstance = typeof raw.apiBaseUrl === "string" ? raw.apiBaseUrl : undefined;
   const legacyTheme = raw.theme === "amoled" ? "amoled" : raw.theme;
 
+  const shouldRewriteDevYoutubeProxy =
+    import.meta.env.DEV &&
+    !import.meta.env.VITE_ELECTRON_LOCAL_PROXY_BASE_URL &&
+    !import.meta.env.VITE_CAPACITOR_LOCAL_PROXY_BASE_URL;
+
   const merged: AppSettings = {
     ...defaultSettings,
     ...raw,
@@ -24,9 +29,37 @@ export const mergeSettings = (raw: unknown): AppSettings => {
         : legacyInstance && legacyInstance.trim()
           ? legacyInstance
           : defaultSettings.instanceUrl,
+    apiProxyUrl: typeof raw.apiProxyUrl === "string" ? raw.apiProxyUrl : defaultSettings.apiProxyUrl,
     region: typeof raw.region === "string" && raw.region.trim() ? raw.region : defaultSettings.region,
     language: typeof raw.language === "string" && raw.language.trim() ? raw.language : defaultSettings.language,
+    audioTrackLanguage:
+      typeof raw.audioTrackLanguage === "string" && raw.audioTrackLanguage.trim()
+        ? raw.audioTrackLanguage
+        : defaultSettings.audioTrackLanguage,
     token: typeof raw.token === "string" ? raw.token : "",
+    youtubeJsProxyUrl:
+      typeof raw.youtubeJsProxyUrl === "string"
+        ? (shouldRewriteDevYoutubeProxy && raw.youtubeJsProxyUrl.trim() === "/youtubejs-proxy"
+            ? defaultSettings.youtubeJsProxyUrl
+            : raw.youtubeJsProxyUrl)
+        : defaultSettings.youtubeJsProxyUrl,
+    youtubeAuthMode:
+      raw.youtubeAuthMode === "cookie" || raw.youtubeAuthMode === "tv_oauth" || raw.youtubeAuthMode === "none"
+        ? raw.youtubeAuthMode
+        : defaultSettings.youtubeAuthMode,
+    youtubeCookie: typeof raw.youtubeCookie === "string" ? raw.youtubeCookie : defaultSettings.youtubeCookie,
+    youtubeTvOauthCredentials:
+      typeof raw.youtubeTvOauthCredentials === "string"
+        ? raw.youtubeTvOauthCredentials
+        : defaultSettings.youtubeTvOauthCredentials,
+    livePlaybackEnabled:
+      typeof raw.livePlaybackEnabled === "boolean"
+        ? raw.livePlaybackEnabled
+        : defaultSettings.livePlaybackEnabled,
+    hapticFeedback:
+      typeof raw.hapticFeedback === "boolean"
+        ? raw.hapticFeedback
+        : defaultSettings.hapticFeedback,
     theme: (legacyTheme as AppSettings["theme"]) || defaultSettings.theme,
     customAccentColor: typeof raw.customAccentColor === "string" ? raw.customAccentColor : defaultSettings.customAccentColor,
     cardOpacity: clampNumber(raw.cardOpacity, defaultSettings.cardOpacity, 0.2, 1),
@@ -35,6 +68,8 @@ export const mergeSettings = (raw: unknown): AppSettings => {
     playerRadius: clampNumber(raw.playerRadius, defaultSettings.playerRadius, 0, 40),
     bottomNavOpacity: clampNumber(raw.bottomNavOpacity, defaultSettings.bottomNavOpacity, 0.25, 1),
     maxContentWidth: clampNumber(raw.maxContentWidth, defaultSettings.maxContentWidth, 960, 1920),
+    hideShorts: typeof raw.hideShorts === "boolean" ? raw.hideShorts : defaultSettings.hideShorts,
+    hideMobileNavLabels: typeof raw.hideMobileNavLabels === "boolean" ? raw.hideMobileNavLabels : defaultSettings.hideMobileNavLabels,
   };
 
   return merged;
