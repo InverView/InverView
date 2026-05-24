@@ -6,13 +6,13 @@ import {
   DrawerFooter,
   DrawerHeader,
   DrawerHeaderTitle,
-  Select,
-  Text,
   makeStyles,
-  tokens,
 } from "@fluentui/react-components";
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import { useEffect, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { LabeledSelect } from "../LabeledSelect";
+import type { SelectOption } from "../LabeledCombobox";
 
 export interface SearchFilterValues {
   type: "all" | "video" | "playlist" | "channel";
@@ -31,6 +31,23 @@ interface MobileFilterSheetProps {
 }
 
 const featureOptions = ["hd", "subtitles", "4k", "live", "360", "hdr", "vr180"];
+const typeOptions: SelectOption[] = [
+  { value: "all", label: "all" },
+  { value: "video", label: "video" },
+  { value: "playlist", label: "playlist" },
+  { value: "channel", label: "channel" },
+];
+const sortOptions: SelectOption[] = [
+  { value: "relevance", label: "relevance" },
+  { value: "views", label: "views" },
+];
+const durationOptions: SelectOption[] = [
+  { value: "", label: "duration: all" },
+  { value: "short", label: "short" },
+  { value: "medium", label: "medium" },
+  { value: "long", label: "long" },
+];
+const regionOptions: SelectOption[] = ["JP", "US", "KR", "TW", "DE"].map((r) => ({ value: r, label: r }));
 
 const useStyles = makeStyles({
   container: {
@@ -44,7 +61,6 @@ const useStyles = makeStyles({
     gap: "12px",
   },
   featureLabel: {
-    color: tokens.colorNeutralForeground3,
     fontSize: "14px",
     marginBottom: "4px",
   },
@@ -66,6 +82,7 @@ const useStyles = makeStyles({
 
 export const MobileFilterSheet = ({ isOpen, onClose, value, onApply, onReset }: MobileFilterSheetProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const [draft, setDraft] = useState<SearchFilterValues>(value);
 
   useEffect(() => {
@@ -90,56 +107,45 @@ export const MobileFilterSheet = ({ isOpen, onClose, value, onApply, onReset }: 
           action={
             <Button
               appearance="subtle"
-              aria-label="Close"
+              aria-label={t("mobile.close")}
               icon={<Dismiss24Regular />}
               onClick={onClose}
             />
           }
         >
-          検索フィルター
+          {t("mobile.searchFilters")}
         </DrawerHeaderTitle>
       </DrawerHeader>
       <DrawerBody>
         <div className={styles.container}>
           <div className={styles.grid}>
-            <Select
+            <LabeledSelect
+              label={t("search.type")}
               value={draft.type}
-              onChange={(e) => setDraft((prev) => ({ ...prev, type: e.target.value as SearchFilterValues["type"] }))}
-            >
-              <option value="all">all</option>
-              <option value="video">video</option>
-              <option value="playlist">playlist</option>
-              <option value="channel">channel</option>
-            </Select>
-            <Select
+              options={typeOptions}
+              onChange={(value) => setDraft((prev) => ({ ...prev, type: value as SearchFilterValues["type"] }))}
+            />
+            <LabeledSelect
+              label={t("search.sortBy")}
               value={draft.sortBy}
-              onChange={(e) => setDraft((prev) => ({ ...prev, sortBy: e.target.value as SearchFilterValues["sortBy"] }))}
-            >
-              <option value="relevance">relevance</option>
-              <option value="views">views</option>
-            </Select>
-            <Select
+              options={sortOptions}
+              onChange={(value) => setDraft((prev) => ({ ...prev, sortBy: value as SearchFilterValues["sortBy"] }))}
+            />
+            <LabeledSelect
+              label={t("search.duration")}
               value={draft.duration}
-              onChange={(e) => setDraft((prev) => ({ ...prev, duration: e.target.value as SearchFilterValues["duration"] }))}
-            >
-              <option value="">duration: all</option>
-              <option value="short">short</option>
-              <option value="medium">medium</option>
-              <option value="long">long</option>
-            </Select>
-            <Select
+              options={durationOptions}
+              onChange={(value) => setDraft((prev) => ({ ...prev, duration: value as SearchFilterValues["duration"] }))}
+            />
+            <LabeledSelect
+              label={t("search.region")}
               value={draft.region}
-              onChange={(e) => setDraft((prev) => ({ ...prev, region: e.target.value }))}
-            >
-              <option value="JP">JP</option>
-              <option value="US">US</option>
-              <option value="KR">KR</option>
-              <option value="TW">TW</option>
-              <option value="DE">DE</option>
-            </Select>
+              options={regionOptions}
+              onChange={(value) => setDraft((prev) => ({ ...prev, region: value }))}
+            />
           </div>
           <div>
-            <div className={styles.featureLabel}>Features</div>
+            <div className={styles.featureLabel}>{t("search.features")}</div>
             <div className={styles.featureRow}>
               {featureOptions.map((feature) => (
                 <Checkbox
@@ -163,7 +169,7 @@ export const MobileFilterSheet = ({ isOpen, onClose, value, onApply, onReset }: 
               onClose();
             }}
           >
-            リセット
+            {t("search.reset")}
           </Button>
           <Button
             appearance="primary"
@@ -173,7 +179,7 @@ export const MobileFilterSheet = ({ isOpen, onClose, value, onApply, onReset }: 
               onClose();
             }}
           >
-            適用
+            {t("mobile.apply")}
           </Button>
         </div>
       </DrawerFooter>

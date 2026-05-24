@@ -1,51 +1,38 @@
-import Fastify from "fastify";
-import cors from "@fastify/cors";
-import proxy from "@fastify/http-proxy";
 import * as dotenv from "dotenv";
+import { createProxyServer } from "./createServer";
 
 dotenv.config();
 
-const fastify = Fastify({
-  logger: true,
-});
+const PRIMARY_COMPANION_URL = "https://companion.tsub4sa.xyz";
+const FALLBACK_COMPANION_URL = "https://proxy.tsub4sa.xyz";
+const firstNonEmpty = (...values: Array<string | undefined>): string => {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return "";
+};
 
-const COMPANION_URL = process.env.COMPANION_URL || "https://companion.tsub4sa.xyz";
-const COMPANION_SECRET = process.env.COMPANION_SECRET || "";
-const PORT = Number(process.env.PORT) || 8282;
+const companionUrl = firstNonEmpty(process.env.COMPANION_URL, PRIMARY_COMPANION_URL, FALLBACK_COMPANION_URL);
+const companionSecret = process.env.COMPANION_SECRET || "";
+const apiProxyUpstream =
+  process.env.API_PROXY_UPSTREAM ||
+  process.env.VITE_API_BASE_URL ||
+  process.env.VITE_INVIDIOUS_API_BASE_URL ||
+  "https://invidious.tsub4sa.xyz";
+const port = Number(process.env.PORT) || 8282;
+const host = process.env.HOST || "0.0.0.0";
 
-// CORS を有効化（フロントエンドからのリクエストを許可）
-fastify.register(cors, {
-  origin: true,
-});
-
-// Invidious Companion へのプロキシ設定
-// フロントエンドは http://localhost:8282/companion/... にリクエストを送る
-fastify.register(proxy, {
-  upstream: COMPANION_URL,
-  prefix: "/companion",
-  rewritePrefix: "/companion",
-  replyOptions: {
-    rewriteRequestHeaders: (request, headers) => {
-      if (COMPANION_SECRET) {
-        return {
-          ...headers,
-          authorization: `Bearer ${COMPANION_SECRET}`,
-        };
-      }
-      return headers;
-    },
-  },
-});
-
-fastify.get("/health", async () => {
-  return { status: "ok" };
+const fastify = createProxyServer({
+  companionUrl,
+  companionSecret,
+  apiProxyUpstream,
 });
 
 const start = async () => {
   try {
-    await fastify.listen({ port: PORT, host: "0.0.0.0" });
-  } catch (err) {
-    fastify.log.error(err);
+    await fastify.listen({ port, host });
+  } catch (error) {
+    fastify.log.error(error);
     process.exit(1);
   }
 };

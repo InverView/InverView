@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitest/config'
 import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
+import http from "node:http"
 
 // https://vite.dev/config/
 export default defineConfig({
@@ -13,7 +14,7 @@ export default defineConfig({
         name: "InverView",
         short_name: "InverView",
         description: "InverView",
-        theme_color: "#111827",
+        theme_color: "#2A8CFF",
         background_color: "#111827",
         display: "standalone",
         display_override: ["window-controls-overlay", "standalone"],
@@ -62,6 +63,21 @@ export default defineConfig({
     host: true,
     port: 5173,
     allowedHosts: ["youtube.tsub4sa.xyz"],
+    proxy: {
+      "/tv-sync": {
+        target: "http://localhost:8282",
+        changeOrigin: true,
+      },
+      "/api-proxy": {
+        target: "http://localhost:8282",
+        changeOrigin: true,
+      },
+      "/youtubejs-proxy": {
+        target: "http://localhost:8282",
+        changeOrigin: true,
+        agent: new http.Agent({ keepAlive: false }),
+      },
+    },
   },
   test: {
     environment: "jsdom",

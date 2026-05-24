@@ -5,10 +5,13 @@ import {
   SkeletonItem,
   Card,
 } from "@fluentui/react-components";
+import { resolveMediaUrl } from "../lib/media";
 import { VideoCardSkeleton } from "./VideoCardSkeleton";
 
 interface WatchLoadingSkeletonProps {
   theaterMode?: boolean;
+  videoId?: string;
+  baseUrl?: string;
 }
 
 const useStyles = makeStyles({
@@ -27,17 +30,34 @@ const useStyles = makeStyles({
     gap: "16px",
     minWidth: 0,
   },
+  playerContainer: {
+    width: "100%",
+    backgroundColor: tokens.colorNeutralBackground1,
+    "@media (max-width: 1023px)": {
+      paddingBottom: "12px",
+    },
+    "@media (max-width: 767px)": {
+      width: "calc(100% + 32px)",
+      marginLeft: "-16px",
+      marginRight: "-16px",
+    },
+  },
   playerSkeleton: {
     width: "100%",
     aspectRatio: "16 / 9",
     borderRadius: "inherit",
+    backgroundColor: tokens.colorNeutralBackground3,
   },
   playerFrame: {
     width: "100%",
-    borderRadius: "12px",
+    borderRadius: "var(--player-radius)",
     border: `1px solid ${tokens.colorNeutralStroke2}`,
     backgroundColor: tokens.colorNeutralBackground3,
     overflow: "hidden",
+    "@media (max-width: 767px)": {
+      borderTopLeftRadius: "0",
+      borderTopRightRadius: "0",
+    },
   },
   titleSkeleton: {
     height: "28px",
@@ -79,10 +99,12 @@ const useStyles = makeStyles({
   },
 });
 
-export const WatchLoadingSkeleton = ({ theaterMode = false }: WatchLoadingSkeletonProps): JSX.Element => {
+export const WatchLoadingSkeleton = ({ theaterMode = false, videoId, baseUrl = "" }: WatchLoadingSkeletonProps): JSX.Element => {
   const styles = useStyles();
   const cols = theaterMode ? 4 : 3;
   const span = theaterMode ? 3 : 2;
+  const previewThumbnail = videoId ? `/vi/${encodeURIComponent(videoId)}/maxres.jpg` : undefined;
+  const previewThumbnailUrl = resolveMediaUrl(previewThumbnail, baseUrl);
 
   return (
     <div
@@ -91,8 +113,26 @@ export const WatchLoadingSkeleton = ({ theaterMode = false }: WatchLoadingSkelet
     >
       <div className={styles.mainCol}>
         <Skeleton aria-label="Loading video player">
-          <div className={styles.playerFrame}>
-            <SkeletonItem className={styles.playerSkeleton} />
+          <div className={styles.playerContainer}>
+            <div className={styles.playerFrame}>
+              {previewThumbnail ? (
+                <img
+                  src={previewThumbnailUrl}
+                  alt="Loading video thumbnail"
+                  loading="eager"
+                  fetchPriority="high"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    aspectRatio: "16 / 9",
+                    objectFit: "cover",
+                    display: "block",
+                  }}
+                />
+              ) : (
+                <SkeletonItem className={styles.playerSkeleton} />
+              )}
+            </div>
           </div>
           <SkeletonItem className={styles.titleSkeleton} />
           <div style={{ display: "flex", gap: "12px", marginTop: "8px" }}>

@@ -3,6 +3,7 @@ import { CastRegular } from "@fluentui/react-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { VideoDetails } from "../types/invidious";
 import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib/media";
+import { getTvSessionId, setTvSessionId } from "../lib/tvSync";
 import { useSettingsStore } from "../store/settingsStore";
 
 const DEFAULT_RECEIVER_APP_ID = "924FBC0E";
@@ -82,6 +83,29 @@ export const ChromecastButton = ({
     return candidates;
   }, [video.dashUrl, video.hlsUrl, video.formatStreams, baseUrl, stream?.url]);
   const mediaUrl = castCandidates[0]?.url ?? "";
+  const initialTvSessionId = useMemo(() => {
+    if (typeof window === "undefined") return "";
+    const fromQuery = new URLSearchParams(window.location.search).get("tvSession") || "";
+    return fromQuery || getTvSessionId();
+  }, []);
+  const [tvSessionId, setTvSessionIdState] = useState(initialTvSessionId);
+  const syncOrigin = useMemo(() => (typeof window !== "undefined" ? window.location.origin : ""), []);
+
+  const ensureTvSessionId = useCallback(async (): Promise<string> => {
+    if (tvSessionId) return tvSessionId;
+    try {
+      const response = await fetch("/tv-sync/session", { method: "POST" });
+      if (!response.ok) return "";
+      const data = (await response.json()) as { sessionId?: string };
+      const created = (data.sessionId || "").trim();
+      if (!created) return "";
+      setTvSessionId(created);
+      setTvSessionIdState(created);
+      return created;
+    } catch {
+      return "";
+    }
+  }, [tvSessionId]);
 
   useEffect(() => {
     let castContext: InstanceType<typeof window.cast.framework.CastContext> | null = null;
@@ -154,6 +178,7 @@ export const ChromecastButton = ({
         await castContext.requestSession();
       }
 
+      const resolvedTvSessionId = await ensureTvSessionId();
       const session = castContext.getCurrentSession();
       if (!session) return;
 
@@ -179,6 +204,9 @@ export const ChromecastButton = ({
             videoId: video.videoId,
             baseUrl,
             sourceKind: candidate.kind,
+            tvSessionId: resolvedTvSessionId,
+            syncOrigin,
+            apiBaseUrl: baseUrl,
           };
 
           const request = new window.chrome.cast.media.LoadRequest(mediaInfo);
@@ -217,7 +245,7 @@ export const ChromecastButton = ({
     } finally {
       setIsConnecting(false);
     }
-  }, [isReady, mediaUrl, castCandidates, video, baseUrl, startTimeSeconds, audioOnly]);
+  }, [isReady, mediaUrl, castCandidates, video, baseUrl, startTimeSeconds, audioOnly, ensureTvSessionId, syncOrigin]);
 
   if (!isReady) return null;
 

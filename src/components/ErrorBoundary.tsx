@@ -1,6 +1,7 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { Button, Text } from "@fluentui/react-components";
 import { Sentry } from "../lib/sentry";
+import i18n from "../i18n";
 
 interface Props {
   children: ReactNode;
@@ -35,8 +36,8 @@ export class ErrorBoundary extends Component<Props, State> {
   render(): ReactNode {
     if (!this.state.hasError) return this.props.children;
 
-    const title = this.props.title ?? "予期しないエラーが発生しました";
-    const message = this.props.message ?? "再試行してください。改善しない場合は再読み込みをお試しください。";
+    const title = this.props.title ?? i18n.t("app.renderErrorTitle");
+    const message = this.props.message ?? i18n.t("app.renderErrorMessage");
 
     return (
       <div style={{ padding: "40px", display: "flex", flexDirection: "column", gap: "16px", maxWidth: "600px" }}>
@@ -47,10 +48,10 @@ export class ErrorBoundary extends Component<Props, State> {
         ) : null}
         <div style={{ display: "flex", gap: "8px", flexWrap: "wrap" }}>
           <Button appearance="primary" onClick={this.handleRetry} style={{ width: "fit-content" }}>
-            再試行
+            {i18n.t("common.retry")}
           </Button>
           <Button appearance="secondary" onClick={() => window.location.reload()} style={{ width: "fit-content" }}>
-            再読み込み
+            {i18n.t("common.reload")}
           </Button>
         </div>
       </div>

@@ -10,97 +10,256 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Title1,
+  Subtitle1,
+  Tooltip,
+  Spinner,
 } from "@fluentui/react-components";
-import { Delete24Regular, Play24Regular } from "@fluentui/react-icons";
-import { useMemo, useRef, useState } from "react";
+import { Delete20Regular, Play16Regular, EyeOff24Regular, Settings20Regular, History24Regular } from "@fluentui/react-icons";
+import { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { Link as RouterLink } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "../components/EmptyState";
 import { Thumbnail } from "../components/Thumbnail";
 import { formatDateJa, formatDuration } from "../lib/format";
 import { clearWatchHistory, getWatchHistory, removeWatchHistoryItem } from "../lib/watchHistory";
 import { useSettings } from "../hooks/useSettings";
+import { withViewTransition } from "../lib/webPlatform";
+import { filterAndSortVideos } from "../lib/workerClient";
+import { triggerHaptic } from "../lib/haptic";
 
 const useStyles = makeStyles({
   container: {
     display: "flex",
     flexDirection: "column",
-    gap: "20px",
+    gap: "24px",
+    maxWidth: "1000px",
+    margin: "0 auto",
+    width: "100%",
+    padding: "12px",
+    boxSizing: "border-box",
   },
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-  },
-  alert: {
-    padding: "12px",
-    borderRadius: "8px",
-    backgroundColor: tokens.colorStatusWarningBackground1,
-    border: `1px solid ${tokens.colorStatusWarningBorder1}`,
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+    paddingBottom: "16px",
   },
   list: {
     display: "flex",
     flexDirection: "column",
-    gap: "12px",
+    gap: "16px",
   },
   historyCard: {
     display: "flex",
-    gap: "12px",
-    padding: "12px",
-    alignItems: "start",
+    flexDirection: "row",
+    gap: "16px",
+    padding: "16px",
+    alignItems: "stretch",
+    borderRadius: "12px",
+    transition: "box-shadow 0.2s ease, background-color 0.2s ease, border-color 0.2s ease",
+    cursor: "pointer",
+    ":hover": {
+      boxShadow: tokens.shadow8,
+      backgroundColor: tokens.colorNeutralBackground1Hover,
+    },
+    "@media (max-width: 600px)": {
+      flexDirection: "column",
+      alignItems: "start",
+      padding: "12px",
+      gap: "12px",
+    },
   },
   thumbnailWrap: {
-    width: "160px",
+    width: "200px",
+    minWidth: "200px",
+    aspectRatio: "16 / 9",
+    borderRadius: "8px",
+    overflow: "hidden",
+    position: "relative",
     flexShrink: 0,
     "@media (max-width: 600px)": {
-      width: "120px",
+      width: "100%",
+      minWidth: "100%",
     },
   },
   info: {
     display: "flex",
     flexDirection: "column",
-    gap: "4px",
+    justifyContent: "space-between",
     flexGrow: 1,
+    minWidth: 0,
+    width: "100%",
+  },
+  textGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+  },
+  title: {
+    lineHeight: "1.4em",
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: "16px",
+    display: "-webkit-box",
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: "vertical",
+    overflow: "hidden",
+    color: tokens.colorNeutralForeground1,
+  },
+  channelName: {
+    color: tokens.colorNeutralForeground3,
+    fontSize: "13px",
+    fontWeight: tokens.fontWeightMedium,
   },
   metadata: {
-    color: tokens.colorNeutralForeground3,
+    color: tokens.colorNeutralForeground4,
     fontSize: "12px",
+    marginTop: "4px",
   },
   actions: {
     display: "flex",
-    gap: "8px",
-    marginTop: "4px",
+    gap: "10px",
+    alignItems: "center",
+    marginTop: "12px",
+    "@media (max-width: 600px)": {
+      marginTop: "8px",
+      width: "100%",
+      justifyContent: "space-between",
+    },
   },
 });
 
 export const HistoryPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
+  const navigate = useNavigate();
   const { settings } = useSettings();
   const [version, setVersion] = useState(0);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const parentRef = useRef<HTMLDivElement | null>(null);
 
-  const history = useMemo(() => {
-    void version;
-    return getWatchHistory();
+  const [history, setHistory] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setIsLoading(true);
+
+    const rawHistory = getWatchHistory();
+    // Web Workerに重いフィルタリング/ソート（デデュプリケーション）処理をオフロード！！！
+    void filterAndSortVideos(rawHistory, "", "date", "desc").then((processed) => {
+      if (active) {
+        setHistory(processed);
+        setIsLoading(false);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
   }, [version]);
+
   const shouldVirtualize = history.length >= 40;
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualize ? history.length : 0,
     getScrollElement: () => parentRef.current,
-    estimateSize: () => 170,
+    estimateSize: () => 180,
     overscan: 3,
   });
   const virtualRows = rowVirtualizer.getVirtualItems();
 
+  const handleCardClick = useCallback((videoId: string) => {
+    withViewTransition(() => navigate(`/watch/${videoId}?autoplay=1`));
+  }, [navigate]);
+
+  const renderHistoryItem = useCallback((item: any) => {
+    return (
+      <Card
+        appearance="subtle"
+        className={styles.historyCard}
+        onClick={() => handleCardClick(item.videoId)}
+        style={{ boxSizing: "border-box" }}
+      >
+        <div className={styles.thumbnailWrap}>
+          <Thumbnail
+            src={item.thumbnailUrl}
+            alt={item.title}
+            baseUrl={settings.instanceUrl}
+            ratio={16 / 9}
+          />
+        </div>
+        <div className={styles.info}>
+          <div className={styles.textGroup}>
+            <Text className={styles.title}>
+              {item.title}
+            </Text>
+            <Text className={styles.channelName}>{item.channelName}</Text>
+            <Text className={styles.metadata}>
+              {t("history.watchedAt")}: {formatDateJa(Math.floor(item.watchedAt / 1000))} ・ {t("history.position")}: {formatDuration(item.positionSeconds)}
+            </Text>
+          </div>
+          <div className={styles.actions}>
+            <Button
+              size="small"
+              appearance="primary"
+              icon={<Play16Regular />}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleCardClick(item.videoId);
+              }}
+            >
+              {t("history.resume")}
+            </Button>
+            <Tooltip content={t("history.removeItem") || "削除"} relationship="label">
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Delete20Regular />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeWatchHistoryItem(item.videoId);
+                  setVersion((v) => v + 1);
+                }}
+              />
+            </Tooltip>
+          </div>
+        </div>
+      </Card>
+    );
+  }, [styles, settings.instanceUrl, t, handleCardClick]);
+
   if (!settings.saveWatchHistory) {
     return (
-      <div className={styles.alert}>
-        <Text weight="bold">視聴履歴は無効です</Text>
-        <Text size={200}>設定で「視聴履歴を保存」をONにすると記録されます。</Text>
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "80px 24px",
+        textAlign: "center",
+        backgroundColor: tokens.colorNeutralBackground1,
+        minHeight: "400px",
+        boxSizing: "border-box",
+      }}>
+        <div style={{ maxWidth: "480px", display: "flex", flexDirection: "column", alignItems: "center", gap: "20px" }}>
+          <EyeOff24Regular style={{ fontSize: "64px", width: "64px", height: "64px", color: tokens.colorNeutralForeground3 }} />
+          <Title1 style={{ fontWeight: tokens.fontWeightSemibold }}>
+            {t("history.disabledTitle")}
+          </Title1>
+          <Text style={{ color: tokens.colorNeutralForeground2, fontSize: "14px", lineHeight: "1.6" }}>
+            {t("history.disabledDescription")}
+          </Text>
+          <Button
+            appearance="primary"
+            icon={<Settings20Regular />}
+            style={{ marginTop: "12px" }}
+            onClick={() => withViewTransition(() => navigate("/settings?tab=playback"))}
+          >
+            {t("header.showAllSettings") || "設定を開く"}
+          </Button>
+        </div>
       </div>
     );
   }
@@ -108,18 +267,20 @@ export const HistoryPage = (): JSX.Element => {
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <Text size={700} weight="bold">視聴履歴</Text>
-        <Button appearance="outline" onClick={() => setIsConfirmOpen(true)}>
-          履歴をすべて削除
+        <Title1 style={{ fontWeight: tokens.fontWeightBold }}>
+          {t("history.title")}
+        </Title1>
+        <Button appearance="outline" icon={<Delete20Regular />} onClick={() => setIsConfirmOpen(true)}>
+          {t("history.clearAll")}
         </Button>
       </div>
 
       <Dialog open={isConfirmOpen} onOpenChange={(_, data) => setIsConfirmOpen(data.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>履歴をすべて削除</DialogTitle>
+            <DialogTitle>{t("history.clearDialogTitle")}</DialogTitle>
             <DialogContent>
-              履歴をすべて削除しますか？この操作は取り消せません。
+              {t("history.clearDialogContent")}
             </DialogContent>
             <DialogActions>
               <Button
@@ -130,21 +291,25 @@ export const HistoryPage = (): JSX.Element => {
                   setIsConfirmOpen(false);
                 }}
               >
-                削除する
+                {t("history.clearConfirm")}
               </Button>
               <Button appearance="outline" onClick={() => setIsConfirmOpen(false)}>
-                キャンセル
+                {t("history.cancel")}
               </Button>
             </DialogActions>
           </DialogBody>
         </DialogSurface>
       </Dialog>
 
-      {history.length === 0 ? (
-        <EmptyState title="履歴はありません" description="動画を再生するとここに保存されます。" />
+      {isLoading ? (
+        <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
+          <Spinner size="large" label={t("common.loading") || "読み込み中..."} />
+        </div>
+      ) : history.length === 0 ? (
+        <EmptyState title={t("history.emptyTitle")} description={t("history.emptyDescription")} />
       ) : (
         shouldVirtualize ? (
-          <div ref={parentRef} style={{ maxHeight: "70vh", overflowY: "auto", overscrollBehavior: "contain" }}>
+          <div ref={parentRef} style={{ maxHeight: "75vh", overflowY: "auto", overscrollBehavior: "contain" }}>
             <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
               {virtualRows.map((virtualRow) => {
                 const item = history[virtualRow.index];
@@ -158,46 +323,11 @@ export const HistoryPage = (): JSX.Element => {
                       left: 0,
                       width: "100%",
                       transform: `translateY(${virtualRow.start}px)`,
-                      paddingBottom: 12,
+                      paddingBottom: 16,
+                      boxSizing: "border-box",
                     }}
                   >
-                    <Card appearance="outline" className={styles.historyCard}>
-                      <div className={styles.thumbnailWrap}>
-                        <RouterLink to={`/watch/${item.videoId}?autoplay=1`}>
-                          <Thumbnail src={item.thumbnailUrl} alt={item.title} baseUrl={settings.instanceUrl} ratio={16 / 9} />
-                        </RouterLink>
-                      </div>
-                      <div className={styles.info}>
-                        <Text weight="semibold" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                          {item.title}
-                        </Text>
-                        <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{item.channelName}</Text>
-                        <Text className={styles.metadata}>
-                          視聴日時: {formatDateJa(Math.floor(item.watchedAt / 1000))} ・ 再生位置: {formatDuration(item.positionSeconds)}
-                        </Text>
-                        <div className={styles.actions}>
-                          <RouterLink to={`/watch/${item.videoId}?autoplay=1`}>
-                            <Button
-                              size="small"
-                              appearance="primary"
-                              icon={<Play24Regular />}
-                            >
-                              続きから再生
-                            </Button>
-                          </RouterLink>
-                          <Button
-                            size="small"
-                            appearance="subtle"
-                            icon={<Delete24Regular />}
-                            aria-label="履歴を削除"
-                            onClick={() => {
-                              removeWatchHistoryItem(item.videoId);
-                              setVersion((v) => v + 1);
-                            }}
-                          />
-                        </div>
-                      </div>
-                    </Card>
+                    {renderHistoryItem(item)}
                   </div>
                 );
               })}
@@ -206,43 +336,9 @@ export const HistoryPage = (): JSX.Element => {
         ) : (
           <div className={styles.list}>
             {history.map((item) => (
-              <Card key={item.videoId} appearance="outline" className={styles.historyCard}>
-                <div className={styles.thumbnailWrap}>
-                  <RouterLink to={`/watch/${item.videoId}?autoplay=1`}>
-                    <Thumbnail src={item.thumbnailUrl} alt={item.title} baseUrl={settings.instanceUrl} ratio={16 / 9} />
-                  </RouterLink>
-                </div>
-                <div className={styles.info}>
-                  <Text weight="semibold" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
-                    {item.title}
-                  </Text>
-                  <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{item.channelName}</Text>
-                  <Text className={styles.metadata}>
-                    視聴日時: {formatDateJa(Math.floor(item.watchedAt / 1000))} ・ 再生位置: {formatDuration(item.positionSeconds)}
-                  </Text>
-                  <div className={styles.actions}>
-                    <RouterLink to={`/watch/${item.videoId}?autoplay=1`}>
-                      <Button
-                        size="small"
-                        appearance="primary"
-                        icon={<Play24Regular />}
-                      >
-                        続きから再生
-                      </Button>
-                    </RouterLink>
-                    <Button
-                      size="small"
-                      appearance="subtle"
-                      icon={<Delete24Regular />}
-                      aria-label="履歴を削除"
-                      onClick={() => {
-                        removeWatchHistoryItem(item.videoId);
-                        setVersion((v) => v + 1);
-                      }}
-                    />
-                  </div>
-                </div>
-              </Card>
+              <div key={item.videoId}>
+                {renderHistoryItem(item)}
+              </div>
             ))}
           </div>
         )

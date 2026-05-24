@@ -1,3 +1,5 @@
+import type { VideoDetails } from "../types/invidious";
+
 export type StartPage = "home" | "trending" | "popular" | "subscriptions" | "search";
 export type ThemeMode = "system" | "light" | "dark" | "amoled";
 export type CornerRadius = "none" | "small" | "medium" | "large" | "xlarge";
@@ -7,9 +9,12 @@ export type AnimationStrength = "off" | "reduced" | "normal";
 export type QualityMode = "auto" | "1080p" | "720p" | "480p" | "360p";
 
 export type CompanionMode = "default" | "custom";
+export type LastFmTitleFormatMode = "raw" | "clean";
+export type YouTubeAuthMode = "none" | "cookie" | "tv_oauth";
 
 export interface AppSettings {
   instanceUrl: string;
+  apiProxyUrl: string;
   region: string;
   language: string;
   token: string;
@@ -22,9 +27,15 @@ export interface AppSettings {
   showSearchSuggestions: boolean;
 
   autoplay: boolean;
+  livePlaybackEnabled: boolean;
   quality: QualityMode;
+  audioTrackLanguage: string;
   audioOnly: boolean;
   dataSaver: boolean;
+  pictureInPictureEnabled: boolean;
+  autoEnterPipOnBackground: boolean;
+  backgroundPlaybackEnabled: boolean;
+  androidMediaNotificationEnabled: boolean;
   loopVideo: boolean;
   useProxyVideo: boolean;
   rememberPlaybackPosition: boolean;
@@ -33,8 +44,12 @@ export interface AppSettings {
   autoplayNextVideo: boolean;
   showCaptionsByDefault: boolean;
   preferOriginalTranslation: boolean;
+  hapticFeedback: boolean;
+  privacyScreenEnabled: boolean;
+  cinematicLighting: boolean;
 
   expandDescriptionByDefault: boolean;
+  hideDescriptionSection: boolean;
   expandChaptersByDefault: boolean;
   expandCommentsByDefault: boolean;
 
@@ -57,6 +72,23 @@ export interface AppSettings {
   companionMode: CompanionMode;
   companionUrl: string;
   companionSecret: string;
+  youtubeJsProxyUrl: string;
+  youtubeAuthMode: YouTubeAuthMode;
+  youtubeCookie: string;
+  youtubeTvOauthCredentials: string;
+
+  // Last.fm
+  lastFmEnabled: boolean;
+  lastFmApiKey: string;
+  lastFmApiSecret: string;
+  lastFmUsername: string;
+  lastFmSessionKey: string;
+  lastFmScrobbleEnabled: boolean;
+  lastFmTitleFormatMode: LastFmTitleFormatMode;
+  lastFmTrimArtistPrefix: boolean;
+  lastFmTrimFeaturingSuffix: boolean;
+  lastFmTrimBracketTags: boolean;
+  lastFmTrimDashTags: boolean;
 
   // Volume
   volume: number;
@@ -64,6 +96,8 @@ export interface AppSettings {
 
   // Shorts
   favoriteShortsChannelIds: string[];
+  hideShorts: boolean;
+  hideMobileNavLabels: boolean;
 }
 
 
@@ -79,8 +113,12 @@ export interface WatchHistoryItem {
 
 export interface MiniPlayerState {
   videoId: string;
-  title: string;
   thumbnailUrl: string;
+  video: VideoDetails;
+  baseUrl: string;
+  positionSeconds: number;
+  x: number;
+  y: number;
   visible: boolean;
 }
 

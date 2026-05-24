@@ -1,3 +1,10 @@
+import { getSettingsSnapshot } from "../settings/storage";
+import i18n from "../i18n";
+
+const isJapanese = (): boolean => getSettingsSnapshot().language?.startsWith("ja") ?? true;
+
+const getNumberLocale = (): string => (isJapanese() ? "ja-JP" : "en-US");
+
 export const formatDuration = (seconds?: number): string => {
   if (!seconds || Number.isNaN(seconds)) return "--:--";
 
@@ -15,33 +22,32 @@ export const formatDuration = (seconds?: number): string => {
 
 export const formatViewCountJa = (viewCount?: number, fallbackText?: string): string => {
   if (fallbackText) return fallbackText;
-  if (typeof viewCount !== "number") return "視聴回数不明";
-
-  return `${new Intl.NumberFormat("ja-JP").format(viewCount)} 回視聴`;
+  if (typeof viewCount !== "number") return i18n.t("format.unknownViews");
+  return i18n.t("format.viewsCount", { count: new Intl.NumberFormat(getNumberLocale()).format(viewCount) });
 };
 
 export const formatNumberJa = (value?: number): string => {
   if (typeof value !== "number") return "-";
-  return new Intl.NumberFormat("ja-JP").format(value);
+  return new Intl.NumberFormat(getNumberLocale()).format(value);
 };
 
 export const formatRelativeDateJa = (unixSeconds?: number, fallbackText?: string): string => {
   if (fallbackText) return fallbackText;
-  if (!unixSeconds) return "日時不明";
+  if (!unixSeconds) return i18n.t("common.unknownDate");
 
   const now = Math.floor(Date.now() / 1000);
   const diff = Math.max(0, now - unixSeconds);
 
-  if (diff < 60) return "たった今";
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分前`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 時間前`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)} 日前`;
-  if (diff < 31536000) return `${Math.floor(diff / 2592000)} か月前`;
-  return `${Math.floor(diff / 31536000)} 年前`;
+  if (diff < 60) return i18n.t("common.justNow");
+  if (diff < 3600) return i18n.t("common.minutesAgo", { count: Math.floor(diff / 60) });
+  if (diff < 86400) return i18n.t("common.hoursAgo", { count: Math.floor(diff / 3600) });
+  if (diff < 2592000) return i18n.t("common.daysAgo", { count: Math.floor(diff / 86400) });
+  if (diff < 31536000) return i18n.t("common.monthsAgo", { count: Math.floor(diff / 2592000) });
+  return i18n.t("common.yearsAgo", { count: Math.floor(diff / 31536000) });
 };
 
 export const formatDateJa = (unixSeconds?: number): string => {
-  if (!unixSeconds) return "日時不明";
+  if (!unixSeconds) return i18n.t("common.unknownDate");
   const date = new Date(unixSeconds * 1000);
-  return new Intl.DateTimeFormat("ja-JP", { dateStyle: "medium" }).format(date);
+  return new Intl.DateTimeFormat(getNumberLocale(), { dateStyle: "medium" }).format(date);
 };

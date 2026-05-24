@@ -106,6 +106,7 @@ const DeferredRenderItem = ({
 export const VideoGrid = ({ items, isShorts, authorId }: VideoGridProps): JSX.Element => {
   const isKeyboardNavigating = useKeyboardNavigationMode();
   const parentRef = useRef<HTMLDivElement | null>(null);
+  const appScrollRef = useRef<HTMLElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(0);
 
   const { videos, others } = useMemo(() => {
@@ -147,9 +148,14 @@ export const VideoGrid = ({ items, isShorts, authorId }: VideoGridProps): JSX.El
   }, [containerWidth]);
 
   const videoRowCount = Math.ceil(videos.length / videoColumnCount);
+
+  useEffect(() => {
+    appScrollRef.current = document.getElementById("app-scroll-container");
+  }, []);
+
   const rowVirtualizer = useVirtualizer({
     count: shouldVirtualizeVideos ? videoRowCount : 0,
-    getScrollElement: () => parentRef.current,
+    getScrollElement: () => appScrollRef.current,
     estimateSize: () => (isShorts ? 300 : 340),
     overscan: 2,
   });
@@ -159,7 +165,7 @@ export const VideoGrid = ({ items, isShorts, authorId }: VideoGridProps): JSX.El
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
       {videos.length > 0 && (
         shouldVirtualizeVideos ? (
-          <div ref={parentRef} style={{ maxHeight: "70vh", overflowY: "auto", overscrollBehavior: "contain" }}>
+          <div ref={parentRef}>
             <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
               {virtualRows.map((virtualRow) => {
                 const startIndex = virtualRow.index * videoColumnCount;

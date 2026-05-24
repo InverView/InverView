@@ -11,11 +11,12 @@ import {
   MenuPopover,
   MenuList,
   MenuItem,
+  Title1,
 } from "@fluentui/react-components";
-import { Add16Regular, Delete16Regular, Dismiss16Regular, MoreHorizontal20Regular } from "@fluentui/react-icons";
+import { Add16Regular, Delete16Regular, Dismiss16Regular, MoreHorizontal20Regular, WifiWarning24Regular, Open16Regular } from "@fluentui/react-icons";
 import DOMPurify from "dompurify";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate, useParams, useLocation } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
@@ -32,12 +33,12 @@ import { VideoPlayer } from "../components/VideoPlayer";
 import { useMiniPlayer, useSettings } from "../hooks/useSettings";
 import { formatDateJa, formatDuration, formatNumberJa, formatViewCountJa } from "../lib/format";
 import { addWatchHistoryItem, findWatchHistoryItem, updateWatchHistoryPosition } from "../lib/watchHistory";
-import { getCaptions, getVideo } from "../lib/invidiousClient";
+import { addSubscription, getAuthSubscriptions, getCaptions, getVideo, removeSubscription } from "../lib/invidiousClient";
 import { pickBestThumbnail, resolveMediaUrl } from "../lib/media";
 import { queryKeys } from "../lib/queryKeys";
 import { useSettingsStore } from "../store/settingsStore";
-import { addLocalSubscription, isLocallySubscribed, removeLocalSubscription } from "../lib/localSubscriptions";
-import { getCurrentLocalUser } from "../lib/localUsers";
+import { scrobbleMusicVideo, updateNowPlayingMusicVideo } from "../lib/lastfm";
+import { notifyError } from "../lib/notifications";
 
 interface ChapterItem {
   label: string;
@@ -104,11 +105,12 @@ const parseChapters = (input: string | undefined): ChapterItem[] => {
 const useStyles = makeStyles({
   container: {
     display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "20px",
+    gridTemplateColumns: "minmax(0, 1fr)",
+    gap: "16px",
     alignItems: "start",
     "@media (min-width: 1024px)": {
       gridTemplateColumns: "minmax(0, 1fr) 380px",
+      gap: "20px",
     },
   },
   mainCol: {
@@ -123,13 +125,37 @@ const useStyles = makeStyles({
     "@media (max-width: 1023px)": {
       paddingBottom: "12px",
     },
+    "@media (max-width: 767px)": {
+      width: "calc(100% + 32px)",
+      marginLeft: "-16px",
+      marginRight: "-16px",
+      position: "sticky",
+      top: 0,
+      zIndex: 100,
+      border: "none",
+      outline: "none",
+      paddingBottom: "0px",
+    },
   },
   infoSection: {
     display: "flex",
     flexDirection: "column",
     gap: "8px",
+    alignItems: "flex-start",
+    textAlign: "left",
     "@media (max-width: 1023px)": {
-      padding: "0 12px",
+      padding: "0 8px",
+      marginTop: "2px",
+      gap: "4px",
+    },
+  },
+  videoTitle: {
+    textAlign: "left",
+    alignSelf: "flex-start",
+    width: "100%",
+    "@media (max-width: 767px)": {
+      fontSize: "18px",
+      lineHeight: "24px",
     },
   },
   metadataRow: {
@@ -175,6 +201,9 @@ const useStyles = makeStyles({
     flexDirection: "column",
     gap: "12px",
     minWidth: 0,
+    "@media (max-width: 767px)": {
+      gap: "16px",
+    },
   },
   queueCard: {
     padding: "12px",
@@ -224,6 +253,58 @@ const useStyles = makeStyles({
   mobileActionsWrap: {
     width: "100%",
   },
+  halfSheetBody: {
+    paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
+  },
+  mobileSheet: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: "env(safe-area-inset-bottom)",
+    zIndex: 1000,
+    backgroundColor: tokens.colorNeutralBackground1,
+    borderTopLeftRadius: "16px",
+    borderTopRightRadius: "16px",
+    borderTop: `1px solid ${tokens.colorNeutralStroke2}`,
+    boxShadow: tokens.shadow64,
+    display: "flex",
+    flexDirection: "column",
+  },
+  mobileSheetGrabberWrap: {
+    display: "flex",
+    justifyContent: "center",
+    paddingTop: "10px",
+    paddingBottom: "8px",
+    touchAction: "none",
+    userSelect: "none",
+  },
+  mobileSheetGrabber: {
+    width: "40px",
+    height: "4px",
+    borderRadius: "999px",
+    backgroundColor: tokens.colorNeutralStroke2,
+    touchAction: "none",
+  },
+  mobileSheetHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "8px",
+    padding: "8px 12px",
+    borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+  },
+  sheetContent: {
+    overflowY: "auto",
+    padding: "12px",
+    paddingBottom: "calc(14px + env(safe-area-inset-bottom))",
+  },
+  inlineCommentsDesktopOnly: {
+    ...{
+      "@media (max-width: 767px)": {
+        display: "none",
+      },
+    },
+  },
   resumePromptCard: {
     margin: "0 12px",
     padding: "10px 12px",
@@ -247,14 +328,15 @@ export const WatchPage = (): JSX.Element => {
   const styles = useStyles();
   const { t, i18n } = useTranslation();
   const { videoId = "" } = useParams();
-  const { search } = useLocation();
+  const location = useLocation();
+  const { search } = location;
+  const isTvWatchRoute = location.pathname.startsWith("/tv/watch/");
   const navigate = useNavigate();
   const baseUrl = useSettingsStore((state) => state.apiBaseUrl);
   const region = useSettingsStore((state) => state.region);
   const { settings } = useSettings();
-  const { setMiniPlayer } = useMiniPlayer();
-  const queryClient = useQueryClient();
-  const localUser = getCurrentLocalUser();
+  const { miniPlayer, setMiniPlayer } = useMiniPlayer();
+  const token = useSettingsStore((state) => state.token);
 
   const [showFullDesc, setShowFullDesc] = useState(settings.expandDescriptionByDefault);
   const [showChapters, setShowChapters] = useState(settings.expandChaptersByDefault);
@@ -262,8 +344,50 @@ export const WatchPage = (): JSX.Element => {
   const [playerSessionId, setPlayerSessionId] = useState(0);
   const [resumePrompt, setResumePrompt] = useState<ResumePromptState | null>(null);
   const [queue, setQueue] = useState<QueueItem[]>(() => readQueue());
+  const [commentSeekSeconds, setCommentSeekSeconds] = useState<number | null>(null);
+  const [isDescriptionSheetOpen, setIsDescriptionSheetOpen] = useState(false);
+  const [isCommentsSheetOpen, setIsCommentsSheetOpen] = useState(false);
+  const [descriptionSheetHeightVh, setDescriptionSheetHeightVh] = useState(58);
+  const [commentsSheetHeightVh, setCommentsSheetHeightVh] = useState(70);
+  const dragStateRef = useRef<{
+    type: "description" | "comments";
+    startY: number;
+    startHeight: number;
+    lastHeight: number;
+  } | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    typeof window !== "undefined" ? window.matchMedia("(max-width: 767px)").matches : false,
+  );
   const isAutoplay = useMemo(() => new URLSearchParams(search).get("autoplay") === "1", [search]);
+  const tvSessionId = useMemo(() => new URLSearchParams(search).get("tvSession") || "", [search]);
+  const afterParam = useMemo(() => new URLSearchParams(search).get("after") || "", [search]);
+  const [tvAfterId, setTvAfterId] = useState(afterParam);
   const lastPersistRef = useRef(0);
+  const lastNowPlayingVideoIdRef = useRef<string>("");
+  const playerContainerRef = useRef<HTMLDivElement | null>(null);
+  const latestPlaybackSecondsRef = useRef(0);
+  const playerSwipeRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    startAt: number;
+    tracking: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    setTvAfterId(afterParam);
+  }, [afterParam]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const mediaQuery = window.matchMedia("(max-width: 767px)");
+    const handleChange = (event: MediaQueryListEvent): void => {
+      setIsMobileViewport(event.matches);
+    };
+    setIsMobileViewport(mediaQuery.matches);
+    mediaQuery.addEventListener("change", handleChange);
+    return () => mediaQuery.removeEventListener("change", handleChange);
+  }, []);
 
   useEffect(() => {
     writeQueue(queue);
@@ -271,6 +395,7 @@ export const WatchPage = (): JSX.Element => {
 
   useEffect(() => {
     if (!videoId) return;
+    lastNowPlayingVideoIdRef.current = "";
     const mainContent = document.querySelector("main");
     if (mainContent instanceof HTMLElement) {
       mainContent.scrollTo({ top: 0, left: 0, behavior: "auto" });
@@ -283,6 +408,23 @@ export const WatchPage = (): JSX.Element => {
     setShowFullDesc(settings.expandDescriptionByDefault);
     setShowChapters(settings.expandChaptersByDefault);
   }, [settings.expandDescriptionByDefault, settings.expandChaptersByDefault, videoId]);
+
+  useEffect(() => {
+    if (!isDescriptionSheetOpen) return undefined;
+    const scrollContainer = document.getElementById("app-scroll-container");
+    const previousOverflow = scrollContainer instanceof HTMLElement ? scrollContainer.style.overflow : "";
+    const previousTouchAction = scrollContainer instanceof HTMLElement ? scrollContainer.style.touchAction : "";
+    if (scrollContainer instanceof HTMLElement) {
+      scrollContainer.style.overflow = "hidden";
+      scrollContainer.style.touchAction = "none";
+    }
+    return () => {
+      if (scrollContainer instanceof HTMLElement) {
+        scrollContainer.style.overflow = previousOverflow;
+        scrollContainer.style.touchAction = previousTouchAction;
+      }
+    };
+  }, [isDescriptionSheetOpen]);
 
   const videoQuery = useQuery({
     queryKey: queryKeys.video(videoId, region),
@@ -297,10 +439,14 @@ export const WatchPage = (): JSX.Element => {
     enabled: !!videoId,
   });
   const subscribeAuthorId = videoQuery.data?.authorId ?? "";
-  const localSubscribedQuery = useQuery({
-    queryKey: [...queryKeys.localSubscriptions(localUser.id), subscribeAuthorId, "status"],
-    queryFn: async () => (subscribeAuthorId ? isLocallySubscribed(subscribeAuthorId) : false),
-    enabled: !!subscribeAuthorId,
+  const subscribedQuery = useQuery({
+    queryKey: [...queryKeys.authSubscriptions, subscribeAuthorId, "status"],
+    queryFn: async () => {
+      if (!subscribeAuthorId) return false;
+      const subscriptions = await getAuthSubscriptions();
+      return subscriptions.some((channel) => channel.authorId === subscribeAuthorId);
+    },
+    enabled: !!subscribeAuthorId && !!token,
   });
 
   useEffect(() => {
@@ -320,15 +466,18 @@ export const WatchPage = (): JSX.Element => {
       });
     }
 
-    if (settings.miniPlayer) {
-      setMiniPlayer({
-        videoId: video.videoId,
-        title: video.title,
-        thumbnailUrl: thumb?.url ?? "",
-        visible: true,
-      });
-    }
-  }, [videoQuery.data, settings.saveWatchHistory, settings.miniPlayer, restoredPosition, setMiniPlayer]);
+    if (!settings.miniPlayer) return;
+    setMiniPlayer({
+      videoId: video.videoId,
+      thumbnailUrl: thumb?.url ?? "",
+      video,
+      baseUrl,
+      positionSeconds: restoredPosition,
+      x: miniPlayer?.x ?? 12,
+      y: miniPlayer?.y ?? 96,
+      visible: true,
+    });
+  }, [videoQuery.data, settings.saveWatchHistory, restoredPosition, setMiniPlayer, baseUrl, miniPlayer?.x, miniPlayer?.y, settings.miniPlayer]);
 
   useEffect(() => {
     if (!videoId || !settings.rememberPlaybackPosition) {
@@ -377,7 +526,42 @@ export const WatchPage = (): JSX.Element => {
     return () => window.clearTimeout(timer);
   }, [resumePrompt]);
 
-  const isLocalSubscribed = localSubscribedQuery.data ?? false;
+  useEffect(() => {
+    if (!isTvWatchRoute || !tvSessionId) return;
+    let active = true;
+    const timer = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/tv-sync/session/${encodeURIComponent(tvSessionId)}/command?after=${encodeURIComponent(tvAfterId)}`);
+        if (!response.ok) return;
+        const data = (await response.json()) as {
+          hasCommand: boolean;
+          command?: { id: string; videoId: string };
+        };
+        if (!active || !data.hasCommand || !data.command) return;
+        setTvAfterId(data.command.id);
+        navigate(
+          `/tv/watch/${data.command.videoId}?autoplay=1&tvSession=${encodeURIComponent(tvSessionId)}&after=${encodeURIComponent(data.command.id)}`,
+        );
+      } catch {
+        // keep polling.
+      }
+    }, 2000);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [isTvWatchRoute, navigate, tvAfterId, tvSessionId]);
+
+  const isSubscribed = subscribedQuery.data ?? false;
+  const sharedPositionSeconds = miniPlayer?.videoId === videoId ? miniPlayer.positionSeconds : undefined;
+  const initialPlaybackPosition =
+    typeof sharedPositionSeconds === "number"
+      ? sharedPositionSeconds
+      : (settings.rememberPlaybackPosition ? restoredPosition : 0);
+  useEffect(() => {
+    latestPlaybackSecondsRef.current = initialPlaybackPosition;
+  }, [videoId, initialPlaybackPosition]);
 
   const authorThumb = useMemo(
     () => (video ? pickBestThumbnail(video.authorThumbnails ?? video.videoThumbnails) : undefined),
@@ -387,16 +571,22 @@ export const WatchPage = (): JSX.Element => {
   const descriptionHtml = useMemo(
     () =>
       video
-        ? DOMPurify.sanitize(video.descriptionHtml || video.description || "説明はありません。")
+        ? DOMPurify.sanitize(video.descriptionHtml || video.description || t("watch.noDescription"))
         : "",
-    [video?.descriptionHtml, video?.description],
+    [video?.descriptionHtml, video?.description, t],
   );
   const rawDescription = useMemo(() => (video?.description ?? "").replace(/\s+/g, " ").trim(), [video?.description]);
   const metaDescription = rawDescription.slice(0, 140) || t("watch.descriptionFallback");
   const pageTitle = video ? `${video.title} - ${t("appName")}` : t("appName");
 
   const chapters = useMemo(() => (video ? parseChapters(video.description || "") : []), [video?.description]);
+  const isMusicVideo = useMemo(() => {
+    if (!video) return false;
+    if ((video.musicTracks?.length ?? 0) > 0) return true;
+    return (video.genre ?? "").toLowerCase() === "music";
+  }, [video]);
   const queueHead = queue[0];
+  const isLiveLike = !!video?.liveNow || !!video?.isUpcoming;
   const queuedVideoIds = useMemo(() => new Set(queue.map((item) => item.videoId)), [queue]);
   const relatedVideos = video?.recommendedVideos ?? [];
   const relatedListRef = useRef<HTMLDivElement | null>(null);
@@ -404,7 +594,7 @@ export const WatchPage = (): JSX.Element => {
   const relatedVirtualizer = useVirtualizer({
     count: shouldVirtualizeRelated ? relatedVideos.length : 0,
     getScrollElement: () => relatedListRef.current,
-    estimateSize: () => 110,
+    estimateSize: () => (isMobileViewport ? 320 : 110),
     overscan: 4,
   });
   const relatedVirtualRows = relatedVirtualizer.getVirtualItems();
@@ -419,32 +609,297 @@ export const WatchPage = (): JSX.Element => {
     setQueue((prev) => prev.filter((item) => item.videoId !== videoIdToRemove));
   };
 
-  const toggleLocalSubscribe = (): void => {
-    if (!video?.authorId) return;
-    if (isLocalSubscribed) {
-      removeLocalSubscription(video.authorId);
-    } else {
-      addLocalSubscription(video.authorId);
+  const handleSharedPositionChange = (seconds: number): void => {
+    latestPlaybackSecondsRef.current = Math.max(0, seconds);
+    if (video && miniPlayer?.videoId === video.videoId) {
+      setMiniPlayer({ ...miniPlayer, positionSeconds: seconds });
     }
-    void localSubscribedQuery.refetch();
-    void queryClient.invalidateQueries({ queryKey: queryKeys.localSubscriptions(localUser.id) });
+    if (!settings.rememberPlaybackPosition || !settings.saveWatchHistory) return;
+    const now = Date.now();
+    if (now - lastPersistRef.current < 3000) return;
+    lastPersistRef.current = now;
+    updateWatchHistoryPosition(videoId, seconds);
+  };
+
+  const minimizeToMobilePlayerAndGoBack = (): void => {
+    if (video && settings.miniPlayer) {
+      const thumb = pickBestThumbnail(video.videoThumbnails);
+      const syncedSeconds = latestPlaybackSecondsRef.current > 0
+        ? latestPlaybackSecondsRef.current
+        : (miniPlayer?.videoId === video.videoId ? miniPlayer.positionSeconds : restoredPosition);
+      setMiniPlayer({
+        videoId: video.videoId,
+        thumbnailUrl: thumb?.url ?? "",
+        video,
+        baseUrl,
+        positionSeconds: syncedSeconds,
+        x: miniPlayer?.x ?? 12,
+        y: miniPlayer?.y ?? 96,
+        visible: true,
+      });
+    }
+
+    if (window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/");
+  };
+
+  useEffect(() => {
+    const playerContainer = playerContainerRef.current;
+    if (!playerContainer || !isMobileViewport) return undefined;
+
+    const onTouchStart = (event: TouchEvent): void => {
+      const touch = event.changedTouches[0];
+      if (!touch) return;
+      playerSwipeRef.current = {
+        pointerId: touch.identifier,
+        startX: touch.clientX,
+        startY: touch.clientY,
+        startAt: Date.now(),
+        tracking: true,
+      };
+    };
+
+    const onTouchMove = (event: TouchEvent): void => {
+      const state = playerSwipeRef.current;
+      if (!state || !state.tracking) return;
+      const touch = Array.from(event.changedTouches).find((item) => item.identifier === state.pointerId);
+      if (!touch) return;
+      const deltaX = touch.clientX - state.startX;
+      const deltaY = touch.clientY - state.startY;
+      if (Math.abs(deltaX) > 64 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        state.tracking = false;
+      }
+    };
+
+    const onTouchEnd = (event: TouchEvent): void => {
+      const state = playerSwipeRef.current;
+      if (!state) return;
+      const touch = Array.from(event.changedTouches).find((item) => item.identifier === state.pointerId);
+      if (!touch) return;
+      playerSwipeRef.current = null;
+      if (!state.tracking) return;
+      const deltaY = touch.clientY - state.startY;
+      const deltaX = Math.abs(touch.clientX - state.startX);
+      const durationMs = Date.now() - state.startAt;
+      const isDownSwipe = deltaY > 72 && deltaY > deltaX * 1.05 && durationMs < 950;
+      if (isDownSwipe) minimizeToMobilePlayerAndGoBack();
+    };
+
+    const onTouchCancel = (): void => {
+      playerSwipeRef.current = null;
+    };
+
+    playerContainer.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
+    playerContainer.addEventListener("touchmove", onTouchMove, { capture: true, passive: true });
+    playerContainer.addEventListener("touchend", onTouchEnd, { capture: true, passive: true });
+    playerContainer.addEventListener("touchcancel", onTouchCancel, { capture: true, passive: true });
+
+    return () => {
+      playerContainer.removeEventListener("touchstart", onTouchStart, true);
+      playerContainer.removeEventListener("touchmove", onTouchMove, true);
+      playerContainer.removeEventListener("touchend", onTouchEnd, true);
+      playerContainer.removeEventListener("touchcancel", onTouchCancel, true);
+    };
+  }, [isMobileViewport, video?.videoId, miniPlayer?.videoId, restoredPosition, settings.miniPlayer]);
+
+  const toggleSubscribe = async (): Promise<void> => {
+    if (!token) {
+      notifyError(t("feed.loginRequiredDescription"));
+      return;
+    }
+    if (!video?.authorId) return;
+    try {
+      if (isSubscribed) {
+        await removeSubscription(video.authorId);
+      } else {
+        await addSubscription(video.authorId);
+      }
+      void subscribedQuery.refetch();
+    } catch (error) {
+      console.error(error);
+      notifyError(t("subscriptions.fetchErrorAuth"));
+    }
+  };
+  const startSheetDrag = (type: "description" | "comments", event: ReactPointerEvent<HTMLDivElement>): void => {
+    const startHeight = type === "description" ? descriptionSheetHeightVh : commentsSheetHeightVh;
+    dragStateRef.current = { type, startY: event.clientY, startHeight, lastHeight: startHeight };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const moveSheetDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragStateRef.current;
+    if (!drag) return;
+    const deltaY = drag.startY - event.clientY;
+    const deltaVh = (deltaY / window.innerHeight) * 100;
+    const next = Math.min(92, Math.max(40, drag.startHeight + deltaVh));
+    drag.lastHeight = next;
+    if (drag.type === "description") {
+      setDescriptionSheetHeightVh(next);
+    } else {
+      setCommentsSheetHeightVh(next);
+    }
+  };
+
+  const endSheetDrag = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const drag = dragStateRef.current;
+    if (drag) {
+      const draggedDown = event.clientY - drag.startY;
+      const shouldClose = draggedDown > 48 || drag.lastHeight <= 44;
+      if (shouldClose) {
+        if (drag.type === "description") {
+          setIsDescriptionSheetOpen(false);
+        } else {
+          setIsCommentsSheetOpen(false);
+        }
+      }
+    }
+    dragStateRef.current = null;
+    event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const computeSheetHeightByPlayerBottom = (): number => {
+    if (typeof window === "undefined") return 60;
+    const rect = playerContainerRef.current?.getBoundingClientRect();
+    if (!rect) return 60;
+    const mobileBottomNavPx = 56;
+    const availablePx = window.innerHeight - rect.bottom - mobileBottomNavPx;
+    const vh = (availablePx / window.innerHeight) * 100;
+    return Math.min(92, Math.max(24, vh));
+  };
+
+  const openDescriptionSheet = (): void => {
+    const nextHeight = computeSheetHeightByPlayerBottom();
+    setDescriptionSheetHeightVh(nextHeight);
+    setIsDescriptionSheetOpen(true);
+  };
+
+  const openCommentsSheet = (): void => {
+    const nextHeight = computeSheetHeightByPlayerBottom();
+    setCommentsSheetHeightVh(nextHeight);
+    setIsCommentsSheetOpen(true);
   };
 
   if (!videoId) {
-    return <EmptyState title="動画IDがありません" description="URL を確認してください。" />;
+    return <EmptyState title={t("watch.noVideoIdTitle")} description={t("watch.noVideoIdDescription")} />;
   }
 
   if (videoQuery.isLoading) {
-    return <WatchLoadingSkeleton theaterMode={settings.theaterMode} />;
+    return <WatchLoadingSkeleton theaterMode={settings.theaterMode} videoId={videoId} baseUrl={baseUrl} />;
   }
 
   if (videoQuery.isError || !video) {
     return (
       <ErrorState
-        title="動画情報を取得できません"
-        message="動画情報を取得できません。"
+        title={t("watch.fetchErrorTitle")}
+        message={t("watch.fetchErrorMessage")}
         onRetry={() => videoQuery.refetch()}
       />
+    );
+  }
+
+  const enableLivePlayback = import.meta.env.VITE_ENABLE_LIVE_PLAYBACK !== "false";
+  const isLive = !!video.liveNow;
+
+  if (!enableLivePlayback && isLive) {
+    return (
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "48px 24px",
+        textAlign: "center",
+        backgroundColor: tokens.colorNeutralBackground1,
+        minHeight: "400px",
+        boxSizing: "border-box",
+      }}>
+        <div style={{ maxWidth: "600px", display: "flex", flexDirection: "column", alignItems: "center", gap: "20px" }}>
+          <WifiWarning24Regular style={{ fontSize: "64px", width: "64px", height: "64px", color: tokens.colorPaletteRedBorderActive }} />
+          
+          <Title1 style={{ fontWeight: tokens.fontWeightSemibold, color: tokens.colorNeutralForeground1 }}>
+            {t("watch.livePlaybackForbiddenTitle")}
+          </Title1>
+          
+          <div style={{ display: "flex", flexDirection: "column", gap: "16px", textAlign: "left", lineHeight: "1.6", color: tokens.colorNeutralForeground2 }}>
+            <Text weight="bold" style={{ fontSize: "16px", color: tokens.colorNeutralForeground1, display: "block" }}>
+              {t("watch.livePlaybackForbiddenTitleBold")}
+            </Text>
+            <Text style={{ fontSize: "14px", display: "block" }}>
+              {t("watch.livePlaybackForbiddenMessage")}
+            </Text>
+          </div>
+          
+          <div style={{ display: "flex", gap: "12px", flexWrap: "wrap", justifyContent: "center", marginTop: "16px" }}>
+            <Button appearance="primary" onClick={() => navigate(-1)}>
+              {t("common.back")}
+            </Button>
+            <Button
+              appearance="outline"
+              icon={<Open16Regular />}
+              iconPosition="after"
+              onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, "_blank", "noopener,noreferrer")}
+            >
+              {t("watch.openInYoutube")}
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!settings.livePlaybackEnabled && isLiveLike) {
+    return (
+      <ErrorState
+        title={t("watch.livePlaybackDisabledTitle")}
+        message={t("watch.livePlaybackDisabledMessage")}
+      />
+    );
+  }
+
+  if (isTvWatchRoute) {
+    return (
+      <div style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ width: "100%", maxWidth: "100%", background: "black" }}>
+          <VideoPlayer
+            key={`${video.videoId}-${playerSessionId}-${restoredPosition}`}
+            video={video}
+            baseUrl={baseUrl}
+            initialPositionSeconds={initialPlaybackPosition}
+            externalSeekSeconds={commentSeekSeconds}
+            onPositionChange={handleSharedPositionChange}
+            onPlay={() => {
+              if (!isMusicVideo) return;
+              if (lastNowPlayingVideoIdRef.current === video.videoId) return;
+              lastNowPlayingVideoIdRef.current = video.videoId;
+              void updateNowPlayingMusicVideo(video, settings).catch((error) => {
+                console.error(error);
+                notifyError(t("watch.lastFmNowPlayingFailed"));
+              });
+            }}
+            onEnded={() => {
+              if (isMusicVideo) {
+                void scrobbleMusicVideo(video, settings).catch((error) => {
+                  console.error(error);
+                  notifyError(t("watch.lastFmScrobbleFailed"));
+                });
+              }
+              if (isLiveLike) return;
+              if (!settings.autoplayNextVideo) return;
+              if (queueHead?.videoId) {
+                setQueue((prev) => prev.slice(1));
+                navigate(`/tv/watch/${queueHead.videoId}?autoplay=1`);
+                return;
+              }
+              const nextVideo = relatedVideos[0];
+              if (nextVideo?.videoId) navigate(`/tv/watch/${nextVideo.videoId}?autoplay=1`);
+            }}
+            autoplay={isAutoplay}
+          />
+        </div>
+      </div>
     );
   }
 
@@ -461,20 +916,34 @@ export const WatchPage = (): JSX.Element => {
       </Helmet>
       <div className={styles.container}>
       <div className={styles.mainCol}>
-        <div className={styles.playerContainer}>
+        <div
+          ref={playerContainerRef}
+          className={styles.playerContainer}
+        >
           <VideoPlayer
             key={`${video.videoId}-${playerSessionId}-${restoredPosition}`}
             video={video}
             baseUrl={baseUrl}
-            initialPositionSeconds={settings.rememberPlaybackPosition ? restoredPosition : 0}
-            onPositionChange={(seconds) => {
-              if (!settings.rememberPlaybackPosition || !settings.saveWatchHistory) return;
-              const now = Date.now();
-              if (now - lastPersistRef.current < 3000) return;
-              lastPersistRef.current = now;
-              updateWatchHistoryPosition(video.videoId, seconds);
+            initialPositionSeconds={initialPlaybackPosition}
+            externalSeekSeconds={commentSeekSeconds}
+            onPositionChange={handleSharedPositionChange}
+            onPlay={() => {
+              if (!isMusicVideo) return;
+              if (lastNowPlayingVideoIdRef.current === video.videoId) return;
+              lastNowPlayingVideoIdRef.current = video.videoId;
+              void updateNowPlayingMusicVideo(video, settings).catch((error) => {
+                console.error(error);
+                notifyError(t("watch.lastFmNowPlayingFailed"));
+              });
             }}
             onEnded={() => {
+              if (isMusicVideo) {
+                void scrobbleMusicVideo(video, settings).catch((error) => {
+                  console.error(error);
+                  notifyError(t("watch.lastFmScrobbleFailed"));
+                });
+              }
+              if (isLiveLike) return;
               if (!settings.autoplayNextVideo) return;
               if (queueHead?.videoId) {
                 setQueue((prev) => prev.slice(1));
@@ -490,11 +959,11 @@ export const WatchPage = (): JSX.Element => {
         {resumePrompt ? (
           <Card appearance="filled-alternative" className={styles.resumePromptCard}>
             <Text size={200}>
-              前回の続き: {formatDuration(resumePrompt.savedSeconds)}
+              {t("watch.resumeFromPrevious", { time: formatDuration(resumePrompt.savedSeconds) })}
             </Text>
             <div className={styles.resumePromptActions}>
               <Button appearance="primary" size="small" onClick={() => setResumePrompt(null)}>
-                {formatDuration(resumePrompt.savedSeconds)} から再生
+                {t("watch.playFromTime", { time: formatDuration(resumePrompt.savedSeconds) })}
               </Button>
               <Button
                 appearance="subtle"
@@ -505,21 +974,26 @@ export const WatchPage = (): JSX.Element => {
                   setPlayerSessionId((prev) => prev + 1);
                 }}
               >
-                最初から再生
+                {t("watch.playFromStart")}
               </Button>
             </div>
           </Card>
         ) : null}
 
         <div className={styles.infoSection}>
-          <Text size={600} weight="bold">
+          <Text size={600} weight="bold" className={styles.videoTitle}>
             {video.title}
           </Text>
           <BadgeRow video={video} />
           <div className={styles.metadataRow}>
             <Text>{formatViewCountJa(video.viewCount, video.viewCountText)}</Text>
             <Text>{video.publishedText || formatDateJa(video.published)}</Text>
-            {typeof video.likeCount === "number" ? <Text>高評価 {formatNumberJa(video.likeCount)}</Text> : null}
+            {typeof video.likeCount === "number" ? (
+              <Text>
+                {t("watch.likesCount", { count: formatNumberJa(video.likeCount) })}
+                {isMusicVideo ? " #music" : ""}
+              </Text>
+            ) : null}
           </div>
         </div>
 
@@ -528,9 +1002,9 @@ export const WatchPage = (): JSX.Element => {
           author={video.author}
           avatarSrc={resolveMediaUrl(authorThumb?.url, baseUrl)}
           subCount={video.subCount}
-          secondaryActionLabel={isLocalSubscribed ? "登録解除" : "チャンネル登録"}
-          secondaryActionAppearance={isLocalSubscribed ? "outline" : "primary"}
-          onSecondaryActionClick={toggleLocalSubscribe}
+          secondaryActionLabel={isSubscribed ? t("subscriptions.unsubscribe") : t("watch.subscribeChannel")}
+          secondaryActionAppearance={isSubscribed ? "outline" : "primary"}
+          onSecondaryActionClick={() => void toggleSubscribe()}
         />
 
         <div className={styles.mobileActionsWrap}>
@@ -540,31 +1014,51 @@ export const WatchPage = (): JSX.Element => {
             video={video}
             baseUrl={baseUrl}
             startTimeSeconds={settings.rememberPlaybackPosition ? restoredPosition : 0}
+            showSummaryAction={settings.hideDescriptionSection}
+            onSummaryClick={openDescriptionSheet}
+            showCommentsAction={isMobileViewport}
+            onCommentsClick={openCommentsSheet}
+            commentsLabel={`${t("watch.comments")}${typeof video.commentCount === "number" ? ` ${formatNumberJa(video.commentCount)}` : ""}`}
           />
         </div>
+        {!settings.hideDescriptionSection && (
         <Card appearance="outline" className={styles.descriptionCard}>
-          <Text weight="semibold">概要</Text>
+          <Text weight="semibold">{t("watch.summary")}</Text>
           <div
             className={styles.descriptionContent}
+            data-allow-user-select="true"
+            data-allow-tap-highlight="true"
             style={{ maxHeight: showFullDesc ? "none" : "96px" }}
             dangerouslySetInnerHTML={{ __html: descriptionHtml }}
           />
-          <Button
-            appearance="subtle"
-            size="small"
-            style={{ alignSelf: "flex-start" }}
-            onClick={() => setShowFullDesc((prev) => !prev)}
-          >
-            {showFullDesc ? "閉じる" : "もっと見る"}
-          </Button>
+          {isMobileViewport ? (
+            <Button
+              appearance="subtle"
+              size="small"
+              style={{ alignSelf: "flex-start" }}
+              onClick={openDescriptionSheet}
+            >
+              {t("watch.showMore")}
+            </Button>
+          ) : (
+            <Button
+              appearance="subtle"
+              size="small"
+              style={{ alignSelf: "flex-start" }}
+              onClick={() => setShowFullDesc((prev) => !prev)}
+            >
+              {showFullDesc ? t("common.close") : t("watch.showMore")}
+            </Button>
+          )}
         </Card>
+        )}
 
         {chapters.length > 0 && (
           <Card appearance="outline" className={styles.descriptionCard}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <Text weight="semibold">チャプター</Text>
+              <Text weight="semibold">{t("watch.chapters")}</Text>
               <Button appearance="subtle" size="small" onClick={() => setShowChapters((prev) => !prev)}>
-                {showChapters ? "折りたたむ" : "展開"}
+                {showChapters ? t("watch.collapse") : t("watch.expand")}
               </Button>
             </div>
             {showChapters && (
@@ -582,7 +1076,7 @@ export const WatchPage = (): JSX.Element => {
 
         {(captionsQuery.data?.length ?? 0) > 0 && (
           <div className={styles.infoSection}>
-            <Text weight="semibold">字幕</Text>
+            <Text weight="semibold">{t("watch.captions")}</Text>
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
               {(captionsQuery.data ?? []).map((caption, index) => (
                 <Link
@@ -590,42 +1084,46 @@ export const WatchPage = (): JSX.Element => {
                   href={caption.url || "#"}
                   target="_blank"
                 >
-                  {caption.label || caption.languageCode || "字幕"}
-                  {settings.showCaptionsByDefault ? " (初期表示ON)" : ""}
+                  {caption.label || caption.languageCode || t("watch.captions")}
+                  {settings.showCaptionsByDefault ? t("watch.captionsDefaultOn") : ""}
                 </Link>
               ))}
             </div>
           </div>
         )}
 
-        <Comments videoId={videoId} initiallyExpanded={settings.expandCommentsByDefault} />
+        <div className={styles.inlineCommentsDesktopOnly}>
+          <Comments
+            videoId={videoId}
+            initiallyExpanded={settings.expandCommentsByDefault}
+            onTimestampClick={(seconds) => {
+              setCommentSeekSeconds(seconds);
+              setResumePrompt(null);
+            }}
+          />
+        </div>
       </div>
 
       <div className={styles.sideCol}>
-        <Card appearance="outline" className={styles.queueCard}>
-          <div className={styles.queueHeader}>
-            <Text weight="bold">再生キュー</Text>
-            <Button
-              size="small"
-              appearance="subtle"
-              icon={<Delete16Regular />}
-              disabled={queue.length === 0}
-              onClick={() => setQueue([])}
-            >
-              クリア
-            </Button>
-          </div>
-          {queue.length === 0 ? (
-            <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-              関連動画の「キューに追加」から登録できます。
-            </Text>
-          ) : (
+        {queue.length > 0 && (
+          <Card appearance="outline" className={styles.queueCard}>
+            <div className={styles.queueHeader}>
+              <Text weight="bold">{t("watch.playQueue")}</Text>
+              <Button
+                size="small"
+                appearance="subtle"
+                icon={<Delete16Regular />}
+                onClick={() => setQueue([])}
+              >
+                {t("watch.clearQueue")}
+              </Button>
+            </div>
             <div className={styles.queueList}>
               {queue.map((item, index) => (
                 <div key={`${item.videoId}-${index}`} className={styles.queueItem}>
                   <div className={styles.queueItemText}>
                     <Text size={200} className={styles.ellipsis}>
-                      {index === 0 ? `次: ${item.title}` : item.title}
+                      {index === 0 ? t("watch.nextItem", { title: item.title }) : item.title}
                     </Text>
                     <Text size={100} className={styles.ellipsis} style={{ color: tokens.colorNeutralForeground3 }}>
                       {item.author}
@@ -635,21 +1133,25 @@ export const WatchPage = (): JSX.Element => {
                     size="small"
                     appearance="subtle"
                     icon={<Dismiss16Regular />}
-                    aria-label={`${item.title} をキューから削除`}
+                    aria-label={t("watch.removeFromQueueAria", { title: item.title })}
                     onClick={() => removeFromQueue(item.videoId)}
                   />
                 </div>
               ))}
             </div>
-          )}
-        </Card>
+          </Card>
+        )}
 
-        <Divider />
-        <Text weight="bold" size={400} style={{ marginBottom: "4px" }}>
-          関連動画
-        </Text>
+        {!isMobileViewport && (
+          <>
+            <Divider />
+            <Text weight="bold" size={400} style={{ marginBottom: "4px" }}>
+              {t("watch.relatedVideos")}
+            </Text>
+          </>
+        )}
         {relatedVideos.length === 0 ? (
-          <EmptyState title="関連動画がありません" description="おすすめ動画が提供されていません。" />
+          <EmptyState title={t("watch.noRelatedTitle")} description={t("watch.noRelatedDescription")} />
         ) : shouldVirtualizeRelated ? (
           <div ref={relatedListRef} style={{ maxHeight: "70vh", overflowY: "auto", overscrollBehavior: "contain" }}>
             <div style={{ height: relatedVirtualizer.getTotalSize(), position: "relative" }}>
@@ -667,38 +1169,48 @@ export const WatchPage = (): JSX.Element => {
                       transform: `translateY(${virtualRow.start}px)`,
                     }}
                   >
-                    <div className={styles.rowActions}>
+                    <div
+                      className={styles.rowActions}
+                      style={{
+                        height: isMobileViewport ? "auto" : undefined,
+                        display: isMobileViewport ? "block" : undefined,
+                        marginBottom: isMobileViewport ? "12px" : undefined,
+                        boxSizing: "border-box",
+                      }}
+                    >
                       <div className={styles.relatedCardWrap}>
-                        <VideoCard video={item} horizontal={true} />
+                        <VideoCard video={item} horizontal={!isMobileViewport} />
                       </div>
-                      <Menu positioning="below-end">
-                        <MenuTrigger disableButtonEnhancement>
-                          <Button
-                            appearance="subtle"
-                            icon={<MoreHorizontal20Regular />}
-                            aria-label={`${item.title} の操作メニュー`}
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </MenuTrigger>
-                        <MenuPopover>
-                          <MenuList>
-                            <MenuItem
-                              icon={<Add16Regular />}
-                              disabled={queuedVideoIds.has(item.videoId)}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                enqueue({
-                                  videoId: item.videoId,
-                                  title: item.title,
-                                  author: item.author,
-                                });
-                              }}
-                            >
-                              {queuedVideoIds.has(item.videoId) ? "キュー追加済み" : "キューに追加"}
-                            </MenuItem>
-                          </MenuList>
-                        </MenuPopover>
-                      </Menu>
+                      {!isMobileViewport && (
+                        <Menu positioning="below-end">
+                          <MenuTrigger disableButtonEnhancement>
+                            <Button
+                              appearance="subtle"
+                              icon={<MoreHorizontal20Regular />}
+                              aria-label={t("watch.itemActionsAria", { title: item.title })}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </MenuTrigger>
+                          <MenuPopover>
+                            <MenuList>
+                              <MenuItem
+                                icon={<Add16Regular />}
+                                disabled={queuedVideoIds.has(item.videoId)}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  enqueue({
+                                    videoId: item.videoId,
+                                    title: item.title,
+                                    author: item.author,
+                                  });
+                                }}
+                              >
+                                {queuedVideoIds.has(item.videoId) ? t("watch.addedToQueue") : t("watch.addToQueue")}
+                              </MenuItem>
+                            </MenuList>
+                          </MenuPopover>
+                        </Menu>
+                      )}
                     </div>
                   </div>
                 );
@@ -707,43 +1219,109 @@ export const WatchPage = (): JSX.Element => {
           </div>
         ) : (
           relatedVideos.map((item) => (
-            <div key={`${item.videoId}-${item.title}`} className={styles.rowActions}>
+            <div
+              key={`${item.videoId}-${item.title}`}
+              className={styles.rowActions}
+              style={{
+                height: isMobileViewport ? "auto" : undefined,
+                display: isMobileViewport ? "block" : undefined,
+                marginBottom: isMobileViewport ? "12px" : undefined,
+                boxSizing: "border-box",
+              }}
+            >
               <div className={styles.relatedCardWrap}>
-                <VideoCard video={item} horizontal={true} />
+                <VideoCard video={item} horizontal={!isMobileViewport} />
               </div>
-              <Menu positioning="below-end">
-                <MenuTrigger disableButtonEnhancement>
-                  <Button
-                    appearance="subtle"
-                    icon={<MoreHorizontal20Regular />}
-                    aria-label={`${item.title} の操作メニュー`}
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                </MenuTrigger>
-                <MenuPopover>
-                  <MenuList>
-                    <MenuItem
-                      icon={<Add16Regular />}
-                      disabled={queuedVideoIds.has(item.videoId)}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        enqueue({
-                          videoId: item.videoId,
-                          title: item.title,
-                          author: item.author,
-                        });
-                      }}
-                    >
-                      {queuedVideoIds.has(item.videoId) ? "キュー追加済み" : "キューに追加"}
-                    </MenuItem>
-                  </MenuList>
-                </MenuPopover>
-              </Menu>
+              {!isMobileViewport && (
+                <Menu positioning="below-end">
+                  <MenuTrigger disableButtonEnhancement>
+                    <Button
+                      appearance="subtle"
+                      icon={<MoreHorizontal20Regular />}
+                      aria-label={t("watch.itemActionsAria", { title: item.title })}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </MenuTrigger>
+                  <MenuPopover>
+                    <MenuList>
+                      <MenuItem
+                        icon={<Add16Regular />}
+                        disabled={queuedVideoIds.has(item.videoId)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          enqueue({
+                            videoId: item.videoId,
+                            title: item.title,
+                            author: item.author,
+                          });
+                        }}
+                      >
+                        {queuedVideoIds.has(item.videoId) ? t("watch.addedToQueue") : t("watch.addToQueue")}
+                      </MenuItem>
+                    </MenuList>
+                  </MenuPopover>
+                </Menu>
+              )}
             </div>
           ))
         )}
       </div>
       </div>
+      {isDescriptionSheetOpen && isMobileViewport && (
+        <div className={styles.mobileSheet} style={{ height: `${descriptionSheetHeightVh}vh` }}>
+          <div
+            className={styles.mobileSheetGrabberWrap}
+            onPointerDown={(event) => startSheetDrag("description", event)}
+            onPointerMove={moveSheetDrag}
+            onPointerUp={endSheetDrag}
+            onPointerCancel={endSheetDrag}
+          >
+            <div className={styles.mobileSheetGrabber} />
+          </div>
+          <div className={styles.mobileSheetHeader}>
+            <Text weight="semibold">{t("watch.summary")}</Text>
+            <Button appearance="subtle" icon={<Dismiss16Regular />} aria-label={t("common.close")} onClick={() => setIsDescriptionSheetOpen(false)} />
+          </div>
+          <div className={styles.sheetContent}>
+            <div
+              className={styles.descriptionContent}
+              data-allow-user-select="true"
+              data-allow-tap-highlight="true"
+              style={{ maxHeight: "none" }}
+              dangerouslySetInnerHTML={{ __html: descriptionHtml }}
+            />
+          </div>
+        </div>
+      )}
+
+      {isCommentsSheetOpen && isMobileViewport && (
+        <div className={styles.mobileSheet} style={{ height: `${commentsSheetHeightVh}vh` }}>
+          <div
+            className={styles.mobileSheetGrabberWrap}
+            onPointerDown={(event) => startSheetDrag("comments", event)}
+            onPointerMove={moveSheetDrag}
+            onPointerUp={endSheetDrag}
+            onPointerCancel={endSheetDrag}
+          >
+            <div className={styles.mobileSheetGrabber} />
+          </div>
+          <div className={styles.mobileSheetHeader}>
+            <Text weight="semibold">{t("watch.comments")}</Text>
+            <Button appearance="subtle" icon={<Dismiss16Regular />} aria-label={t("common.close")} onClick={() => setIsCommentsSheetOpen(false)} />
+          </div>
+          <div className={styles.sheetContent}>
+            <Comments
+              videoId={videoId}
+              initiallyExpanded={true}
+              onTimestampClick={(seconds) => {
+                setCommentSeekSeconds(seconds);
+                setResumePrompt(null);
+                setIsCommentsSheetOpen(false);
+              }}
+            />
+          </div>
+        </div>
+      )}
     </>
   );
 };

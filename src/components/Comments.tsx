@@ -13,10 +13,12 @@ import { CommentCard } from "./CommentCard";
 import { EmptyState } from "./EmptyState";
 import { ErrorState } from "./ErrorState";
 import { LoadingGrid } from "./LoadingGrid";
+import { useTranslation } from "react-i18next";
 
 interface CommentsProps {
   videoId: string;
   initiallyExpanded?: boolean;
+  onTimestampClick?: (seconds: number) => void;
 }
 
 const useStyles = makeStyles({
@@ -48,8 +50,9 @@ const useStyles = makeStyles({
   },
 });
 
-export const Comments = ({ videoId, initiallyExpanded = true }: CommentsProps): JSX.Element => {
+export const Comments = ({ videoId, initiallyExpanded = true, onTimestampClick }: CommentsProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const [sortBy, setSortBy] = useState<"top" | "new">("top");
   const [continuation, setContinuation] = useState<string | undefined>(undefined);
   const [visibleCount, setVisibleCount] = useState(4);
@@ -70,14 +73,14 @@ export const Comments = ({ videoId, initiallyExpanded = true }: CommentsProps): 
 
   if (commentsQuery.isLoading) return <LoadingGrid count={3} />;
   if (commentsQuery.isError) {
-    return <ErrorState title="コメント取得エラー" message="コメントを取得できませんでした。" onRetry={() => commentsQuery.refetch()} />;
+    return <ErrorState title={t("comments.fetchErrorTitle")} message={t("comments.fetchErrorMessage")} onRetry={() => commentsQuery.refetch()} />;
   }
 
 
   return (
     <div className={styles.container}>
       <div className={styles.header}>
-        <Text weight="semibold">コメント</Text>
+        <Text weight="semibold">{t("comments.title")}</Text>
         <div className={styles.controls}>
           <Select
             value={sortBy}
@@ -88,11 +91,11 @@ export const Comments = ({ videoId, initiallyExpanded = true }: CommentsProps): 
             }}
             size="small"
           >
-            <option value="top">人気順</option>
-            <option value="new">新しい順</option>
+            <option value="top">{t("comments.sortTop")}</option>
+            <option value="new">{t("comments.sortNew")}</option>
           </Select>
           <Button size="small" appearance="outline" onClick={() => setExpanded((prev) => !prev)}>
-            {expanded ? "折りたたむ" : "展開"}
+            {expanded ? t("comments.collapse") : t("comments.expand")}
           </Button>
         </div>
       </div>
@@ -100,14 +103,16 @@ export const Comments = ({ videoId, initiallyExpanded = true }: CommentsProps): 
       {expanded && (
         <div className={styles.list}>
           {comments.length === 0 ? (
-            <EmptyState title="コメントはまだありません" description="この動画には表示できるコメントがありません。" />
+            <EmptyState title={t("comments.emptyTitle")} description={t("comments.emptyDescription")} />
           ) : (
-            visibleComments.map((comment) => <CommentCard key={comment.commentId} comment={comment} />)
+            visibleComments.map((comment) => (
+              <CommentCard key={comment.commentId} comment={comment} onTimestampClick={onTimestampClick} />
+            ))
           )}
 
           {comments.length > visibleCount && (
             <Button appearance="outline" className={styles.loadMoreBtn} onClick={() => setVisibleCount((prev) => prev + 4)}>
-              コメントをさらに表示
+              {t("comments.loadMore")}
             </Button>
           )}
 
@@ -117,7 +122,7 @@ export const Comments = ({ videoId, initiallyExpanded = true }: CommentsProps): 
               className={styles.loadMoreBtn}
               onClick={() => setContinuation(commentsQuery.data?.continuation)}
             >
-              次のコメントを読み込む
+              {t("comments.loadNext")}
             </Button>
           )}
         </div>

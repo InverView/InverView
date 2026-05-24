@@ -8,6 +8,7 @@ import {
 } from "@fluentui/react-components";
 import { useNavigate } from "react-router-dom";
 import { formatNumberJa } from "../../lib/format";
+import { useTranslation } from "react-i18next";
 
 interface MobileChannelHeaderProps {
   authorId: string;
@@ -21,10 +22,18 @@ interface MobileChannelHeaderProps {
 
 const useStyles = makeStyles({
   card: {
-    padding: "12px",
+    padding: "8px 0",
     display: "flex",
     flexDirection: "column",
     gap: "12px",
+    background: "transparent",
+    backgroundColor: "transparent",
+    border: "none",
+    boxShadow: "none",
+    ":hover": {
+      background: "transparent",
+      backgroundColor: "transparent",
+    },
   },
   header: {
     display: "flex",
@@ -34,13 +43,31 @@ const useStyles = makeStyles({
   info: {
     display: "flex",
     flexDirection: "column",
+    gap: "4px",
+    minWidth: 0,
+    flex: 1,
   },
-  actions: {
+  nameRow: {
     display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start",
     gap: "8px",
+    width: "fit-content",
+    maxWidth: "100%",
   },
-  btn: {
-    flexGrow: 1,
+  authorLink: {
+    cursor: "pointer",
+    display: "inline-block",
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    ":hover": {
+      textDecorationLine: "underline",
+    },
+  },
+  subscribeBtn: {
+    flexShrink: 0,
   },
 });
 
@@ -49,32 +76,33 @@ export const MobileChannelHeader = ({
   author,
   avatarSrc,
   subCount,
-  secondaryActionLabel = "動画一覧",
+  secondaryActionLabel,
   secondaryActionAppearance = "primary",
   onSecondaryActionClick,
 }: MobileChannelHeaderProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const navigate = useNavigate();
+  const resolvedSecondaryActionLabel = secondaryActionLabel ?? t("mobile.videosList");
   return (
-    <Card appearance="outline" className={styles.card}>
-      <div className={styles.header}>
-        <Avatar image={{ src: avatarSrc }} name={author} size={48} />
-        <div className={styles.info}>
-          <Text weight="bold" size={400}>{author}</Text>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            登録者 {formatNumberJa(subCount)} 人
-          </Text>
-        </div>
-      </div>
-      <div className={styles.actions}>
-        <Button
+    <Card appearance="subtle" className={styles.card} style={{ padding: "8px", minHeight: "auto" }}>
+      <div className={styles.header} style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", gap: "12px", width: "100%" }}>
+        <Avatar
+          image={{ src: avatarSrc }}
+          name={author}
+          size={32}
+          style={{ cursor: "pointer" }}
           onClick={() => navigate(`/channel/${authorId}`)}
-          size="small"
-          appearance="outline"
-          className={styles.btn}
+        />
+        <Text
+          weight="bold"
+          size={300}
+          className={styles.authorLink}
+          onClick={() => navigate(`/channel/${authorId}`)}
+          style={{ fontSize: "14px", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "160px" }}
         >
-          チャンネル
-        </Button>
+          {author}
+        </Text>
         <Button
           onClick={() => {
             if (onSecondaryActionClick) {
@@ -85,9 +113,10 @@ export const MobileChannelHeader = ({
           }}
           size="small"
           appearance={secondaryActionAppearance}
-          className={styles.btn}
+          className={styles.subscribeBtn}
+          style={{ height: "28px", minWidth: "auto", fontSize: "12px", padding: "0 12px" }}
         >
-          {secondaryActionLabel}
+          {resolvedSecondaryActionLabel}
         </Button>
       </div>
     </Card>

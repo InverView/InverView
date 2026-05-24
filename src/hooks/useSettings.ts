@@ -23,5 +23,7 @@ export type {
   ThemeMode,
   UiDensity,
   CompanionMode,
+  YouTubeAuthMode,
+  LastFmTitleFormatMode,
   WatchHistoryItem,
 } from "../settings/types";

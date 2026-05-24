@@ -22,11 +22,28 @@ npm run build
 
 - `VITE_API_BASE_URL=https://example.com`
 - `VITE_INVIDIOUS_API_BASE_URL=https://example.com`（後方互換）
+- `VITE_ELECTRON_INVIDIOUS_API_BASE_URL=https://example.com`（Electron用）
+- `VITE_CAPACITOR_INVIDIOUS_API_BASE_URL=https://example.com`（Capacitor用）
+- `VITE_API_PROXY_URL=/api-proxy`（既定値。API 呼び出しをこのURL経由にします）
+- `VITE_ELECTRON_LOCAL_PROXY_BASE_URL=http://127.0.0.1:8282`（Electron内蔵ProxyのベースURL）
+- `VITE_CAPACITOR_LOCAL_PROXY_BASE_URL=http://127.0.0.1:8282`（Capacitor内蔵ProxyのベースURL）
+- `VITE_CAPACITOR_LOCAL_PROXY_PORT=8282`（Capacitor内蔵Proxyの待受ポート）
+- `VITE_ELECTRON_API_PROXY_URL=`（必要なら `/api-proxy` のフルURLを直接指定）
+- `VITE_CAPACITOR_API_PROXY_URL=`（必要なら `/api-proxy` のフルURLを直接指定）
 - `VITE_DEFAULT_REGION=JP`
 - `VITE_DEFAULT_LANGUAGE=ja`
+- `VITE_ENABLE_LIVE_PLAYBACK=true`（`false` でライブ配信の再生を無効化）
 - `VITE_CHROMECAST_APP_ID=CC1AD845`（未設定時は Default Media Receiver）
 
 `VITE_API_BASE_URL` が優先されます。
+
+`VITE_API_PROXY_URL` の既定値は `/api-proxy` で、`npm run server` 側で Invidious に転送されます。必要に応じて `API_PROXY_UPSTREAM` で転送先を変更できます。
+
+Electron / Capacitor 実行時は、既定で `VITE_*_LOCAL_PROXY_BASE_URL` を使って `.../api-proxy` と `.../companion` を参照します（アプリ内Proxy前提）。
+
+Capacitor Android では Kotlin 実装のネイティブローカルHTTPサーバーを組み込み済みです。起動時に `NativeProxy.start()` を呼び、`/api-proxy`・`/companion`・`/tv-sync` を提供します。
+
+ネイティブ側の起動コード例は [docs/native_proxy_startup.md](./docs/native_proxy_startup.md) を参照してください。
 
 ## Chromecast
 
@@ -87,6 +104,43 @@ npm run build
 ## CORS について
 
 インスタンスによっては CORS 制約があります。必要に応じて同一オリジン reverse proxy を使ってください。
+
+## TV Sync 本番ルーティング
+
+`/tv` の独自TV連携は `POST /tv-sync/session` などのAPIを使用します。  
+`vite.config.ts` の proxy は開発時のみ有効なので、本番ではリバースプロキシ設定が必要です。
+
+- フロント: `https://youtube.tsub4sa.xyz`
+- APIサーバー: `http://127.0.0.1:8282`（`npm run server`）
+
+Nginx 例:
+
+```nginx
+location /tv-sync/ {
+  proxy_pass http://127.0.0.1:8282/tv-sync/;
+  proxy_http_version 1.1;
+  proxy_set_header Host $host;
+  proxy_set_header X-Real-IP $remote_addr;
+  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  proxy_set_header X-Forwarded-Proto $scheme;
+}
+```
+
+Caddy 例:
+
+```caddy
+handle_path /tv-sync/* {
+  reverse_proxy 127.0.0.1:8282
+}
+```
+
+確認手順:
+
+```bash
+curl -i -X POST https://youtube.tsub4sa.xyz/tv-sync/session
+```
+
+`200` と `{"sessionId":"..."}` が返れば設定完了です。
 
 ## 今後の TODO
 

@@ -20,6 +20,7 @@ import { pickBestThumbnail } from "../lib/media";
 import { queryKeys } from "../lib/queryKeys";
 import { useSettingsStore } from "../store/settingsStore";
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 
 const useStyles = makeStyles({
   container: {
@@ -70,6 +71,7 @@ const useStyles = makeStyles({
 
 export const PlaylistPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const { playlistId = "" } = useParams();
   const baseUrl = useSettingsStore((state) => state.apiBaseUrl);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -82,13 +84,13 @@ export const PlaylistPage = (): JSX.Element => {
     enabled: !!playlistId && !isLocalPlaylist,
   });
 
-  if (!playlistId) return <EmptyState title="プレイリストIDがありません" description="URL を確認してください。" />;
+  if (!playlistId) return <EmptyState title={t("playlistPage.noPlaylistIdTitle")} description={t("playlistPage.noPlaylistIdDescription")} />;
   if (!isLocalPlaylist && playlistQuery.isLoading) return <LoadingGrid />;
   if (isLocalPlaylist && !localPlaylist) {
-    return <ErrorState title="プレイリスト取得失敗" message="ローカルプレイリストが見つかりませんでした。" onRetry={() => window.location.reload()} />;
+    return <ErrorState title={t("playlistPage.fetchErrorTitle")} message={t("playlistPage.localNotFoundMessage")} onRetry={() => window.location.reload()} />;
   }
   if (!isLocalPlaylist && (playlistQuery.isError || !playlistQuery.data)) {
-    return <ErrorState title="プレイリスト取得失敗" message="プレイリストを取得できませんでした。" onRetry={() => playlistQuery.refetch()} />;
+    return <ErrorState title={t("playlistPage.fetchErrorTitle")} message={t("playlistPage.fetchErrorMessage")} onRetry={() => playlistQuery.refetch()} />;
   }
 
   const playlist = isLocalPlaylist ? localPlaylist! : playlistQuery.data!;
@@ -100,13 +102,13 @@ export const PlaylistPage = (): JSX.Element => {
       <div className={styles.header}>
         <Text size={600} weight="bold">{playlist.title}</Text>
         <Text style={{ color: tokens.colorNeutralForeground3 }}>
-          作成者: {playlist.author} ・ {playlist.videoCount ?? videos.length} 本
+          {t("playlistPage.authorAndCount", { author: playlist.author, count: playlist.videoCount ?? videos.length })}
         </Text>
       </div>
 
       {videos.length > 0 ? (
         <Card appearance="outline" className={styles.controlCard}>
-          <Text weight="bold">連続再生</Text>
+          <Text weight="bold">{t("playlistPage.autoplayTitle")}</Text>
           <Text size={200}>
             {currentIndex + 1} / {videos.length} : {current?.title}
           </Text>
@@ -116,18 +118,18 @@ export const PlaylistPage = (): JSX.Element => {
               onClick={() => setCurrentIndex((prev) => Math.max(0, prev - 1))}
               disabled={currentIndex === 0}
             >
-              前へ
+              {t("playlistPage.previous")}
             </Button>
             <Button
               appearance="outline"
               onClick={() => setCurrentIndex((prev) => Math.min(videos.length - 1, prev + 1))}
               disabled={currentIndex >= videos.length - 1}
             >
-              次へ
+              {t("playlistPage.next")}
             </Button>
             {current?.videoId ? (
               <RouterLink to={`/watch/${current.videoId}?autoplay=1`}>
-                <Button appearance="primary">再生ページを開く</Button>
+                <Button appearance="primary">{t("playlistPage.openWatchPage")}</Button>
               </RouterLink>
             ) : null}
           </div>
@@ -135,7 +137,7 @@ export const PlaylistPage = (): JSX.Element => {
       ) : null}
 
       {videos.length === 0 ? (
-        <EmptyState title="動画がありません" description="プレイリストに公開動画が見つかりませんでした。" />
+        <EmptyState title={t("playlistPage.emptyTitle")} description={t("playlistPage.emptyDescription")} />
       ) : (
         <div className={styles.list}>
           {videos.map((video, index) => {
@@ -150,10 +152,10 @@ export const PlaylistPage = (): JSX.Element => {
                     {index + 1}. {video.title}
                   </Text>
                   <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-                    {video.author || "投稿者不明"} ・ {formatDuration(video.lengthSeconds)}
+                    {video.author || t("playlistPage.unknownAuthor")} ・ {formatDuration(video.lengthSeconds)}
                   </Text>
                   <RouterLink to={`/watch/${video.videoId}?autoplay=1`} style={{ color: tokens.colorBrandForeground1 }}>
-                    <Link>watch</Link>
+                    <Link>{t("playlistPage.watch")}</Link>
                   </RouterLink>
                 </div>
               </div>

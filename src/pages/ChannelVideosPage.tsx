@@ -9,10 +9,10 @@ import {
 } from "@fluentui/react-components";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { useParams } from "react-router-dom";
-import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingGrid } from "../components/LoadingGrid";
+import { PageTitle } from "../components/PageTitle";
+import { QueryStateView } from "../components/QueryStateView";
 import { VideoGrid } from "../components/VideoGrid";
 import { getChannelShorts, getChannelStreams, getChannelVideos } from "../lib/invidiousClient";
 import { queryKeys } from "../lib/queryKeys";
@@ -38,12 +38,16 @@ const useStyles = makeStyles({
   },
 });
 
+const INFINITE_QUERY_MAX_PAGES = 4;
+const INFINITE_QUERY_GC_TIME_MS = 60_000;
+
 export const ChannelVideosPage = ({ mode }: ChannelVideosPageProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const { authorId = "" } = useParams();
   const [sortBy, setSortBy] = useState<"newest" | "popular" | "oldest">("newest");
 
-  const title = mode === "videos" ? "チャンネル動画" : mode === "shorts" ? "ショート" : "配信";
+  const title = mode === "videos" ? t("channel.videosTitle") : mode === "shorts" ? t("channel.shortsTitle") : t("channel.streamsTitle");
 
   const query = useInfiniteQuery({
     queryKey: queryKeys.channelVideos(authorId, sortBy, mode),
@@ -60,35 +64,43 @@ export const ChannelVideosPage = ({ mode }: ChannelVideosPageProps): JSX.Element
     getNextPageParam: (lastPage) => lastPage.continuation,
     initialPageParam: undefined as string | undefined,
     enabled: !!authorId,
+    maxPages: INFINITE_QUERY_MAX_PAGES,
+    gcTime: INFINITE_QUERY_GC_TIME_MS,
   });
 
   const videos = useMemo(() => query.data?.pages.flatMap((page) => page.videos ?? []) ?? [], [query.data]);
 
   return (
     <div className={styles.container}>
-      <Text size={700} weight="bold">{title}</Text>
+      <PageTitle title={title} />
 
       {mode === "videos" ? (
         <div className={styles.filterRow}>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>並び替え</Text>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>{t("common.sort")}</Text>
           <Combobox
             selectedOptions={[sortBy]}
             value={sortBy}
             onOptionSelect={(_, data) => setSortBy(data.optionValue as any)}
           >
-            <Option value="newest">newest</Option>
-            <Option value="popular">popular</Option>
-            <Option value="oldest">oldest</Option>
+            <Option value="newest">{t("common.sortNewest")}</Option>
+            <Option value="popular">{t("common.sortPopular")}</Option>
+            <Option value="oldest">{t("common.sortOldest")}</Option>
           </Combobox>
         </div>
       ) : null}
 
-      {query.isLoading ? <LoadingGrid /> : null}
-      {query.isError ? <ErrorState title="取得失敗" message="チャンネル動画を取得できませんでした。" onRetry={() => query.refetch()} /> : null}
-      {!query.isLoading && !query.isError && videos.length === 0 ? (
-        <EmptyState title="動画がありません" description="このタブに表示できる項目がありません。" />
-      ) : null}
-      {videos.length > 0 ? <VideoGrid items={videos} /> : null}
+      <QueryStateView
+        isLoading={query.isLoading}
+        isError={query.isError}
+        isEmpty={videos.length === 0}
+        errorTitle={t("channel.fetchErrorTitle")}
+        errorMessage={t("channel.fetchErrorMessage")}
+        emptyTitle={t("channel.emptyTitle")}
+        emptyDescription={t("channel.emptyDescription")}
+        onRetry={() => query.refetch()}
+      >
+        <VideoGrid items={videos} />
+      </QueryStateView>
 
       {query.hasNextPage ? (
         <Button
@@ -98,7 +110,7 @@ export const ChannelVideosPage = ({ mode }: ChannelVideosPageProps): JSX.Element
           appearance="outline"
           icon={query.isFetchingNextPage ? <Spinner size="tiny" /> : undefined}
         >
-          さらに読み込む
+          {t("common.loadMore")}
         </Button>
       ) : null}
     </div>

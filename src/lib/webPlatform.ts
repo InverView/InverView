@@ -1,7 +1,20 @@
+import { enterNativePictureInPicture } from "./nativePlayback";
+import { hapticImpactInCapacitor, openExternalInCapacitor } from "./capacitorSpecial";
+
 export interface SharePayload {
   title?: string;
   text?: string;
   url?: string;
+}
+
+let recentlyHandledPopState = false;
+if (typeof window !== "undefined") {
+  window.addEventListener("popstate", () => {
+    recentlyHandledPopState = true;
+    window.setTimeout(() => {
+      recentlyHandledPopState = false;
+    }, 220);
+  });
 }
 
 type SchedulerPriority = "user-blocking" | "user-visible" | "background";
@@ -21,9 +34,21 @@ export const findActiveVideoElement = (): HTMLVideoElement | null => {
 };
 
 export const togglePictureInPicture = async (videoElement?: HTMLVideoElement | null): Promise<boolean> => {
-  if (!canUsePictureInPictureApi()) return false;
+  try {
+    const raw = localStorage.getItem("invidious-client-settings");
+    if (raw) {
+      const parsed = JSON.parse(raw) as { pictureInPictureEnabled?: boolean };
+      if (parsed.pictureInPictureEnabled === false) return false;
+    }
+  } catch {
+    // ignore localStorage parse errors
+  }
+
+  if (!canUsePictureInPictureApi()) {
+    return enterNativePictureInPicture();
+  }
   const target = videoElement ?? findActiveVideoElement();
-  if (!target) return false;
+  if (!target) return enterNativePictureInPicture();
 
   try {
     if (document.pictureInPictureElement === target) {
@@ -33,13 +58,20 @@ export const togglePictureInPicture = async (videoElement?: HTMLVideoElement | n
     await target.requestPictureInPicture();
     return true;
   } catch {
-    return false;
+    return enterNativePictureInPicture();
   }
 };
 
 export const vibrate = (pattern: number | number[]): boolean => {
+  void hapticImpactInCapacitor(pattern);
   if (typeof navigator === "undefined" || typeof navigator.vibrate !== "function") return false;
   return navigator.vibrate(pattern);
+};
+
+export const openExternalUrl = async (url: string): Promise<void> => {
+  const opened = await openExternalInCapacitor(url);
+  if (opened) return;
+  window.open(url, "_blank", "noopener,noreferrer");
 };
 
 export const shareContent = async (payload: SharePayload): Promise<boolean> => {
@@ -94,6 +126,10 @@ export const scheduleTask = (task: () => void, priority: SchedulerPriority = "ba
 };
 
 export const withViewTransition = (task: () => void): void => {
+  if (recentlyHandledPopState) {
+    task();
+    return;
+  }
   const transitionStarter = (document as Document & { startViewTransition?: (callback: () => void) => unknown }).startViewTransition;
   if (typeof transitionStarter === "function") {
     try {

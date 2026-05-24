@@ -8,6 +8,7 @@ import {
   registerToastDispatcher,
   unregisterToastDispatcher,
 } from "../lib/notifications";
+import i18n from "../i18n";
 
 export const AppToaster = (): JSX.Element => {
   const { dispatchToast } = useToastController(APP_TOASTER_ID);
@@ -23,8 +24,8 @@ export const AppToaster = (): JSX.Element => {
   }, [dispatchToast]);
 
   useEffect(() => {
-    const onOffline = (): void => notifyError("オフラインです。接続を確認してください。");
-    const onOnline = (): void => notifySuccess("オンラインに復帰しました。");
+    const onOffline = (): void => notifyError(i18n.t("toaster.offline"));
+    const onOnline = (): void => notifySuccess(i18n.t("toaster.online"));
 
     window.addEventListener("offline", onOffline);
     window.addEventListener("online", onOnline);

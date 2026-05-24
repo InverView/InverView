@@ -1,15 +1,16 @@
 import {
-  Text,
   makeStyles,
 } from "@fluentui/react-components";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
 import { EmptyState } from "../components/EmptyState";
-import { ErrorState } from "../components/ErrorState";
-import { LoadingGrid } from "../components/LoadingGrid";
+import { PageTitle } from "../components/PageTitle";
+import { QueryStateView } from "../components/QueryStateView";
 import { VideoGrid } from "../components/VideoGrid";
 import { getAuthFeed } from "../lib/invidiousClient";
 import { queryKeys } from "../lib/queryKeys";
 import { useSettingsStore } from "../store/settingsStore";
+import type { AuthFeedResponse } from "../types/invidious";
 
 const useStyles = makeStyles({
   container: {
@@ -21,29 +22,36 @@ const useStyles = makeStyles({
 
 export const FeedPage = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const token = useSettingsStore((state) => state.token);
 
-  const feedQuery = useQuery({
+  const feedQuery = useQuery<AuthFeedResponse>({
     queryKey: queryKeys.authFeed(1),
     queryFn: ({ signal }) => getAuthFeed({ page: 1 }, signal),
     enabled: !!token,
   });
 
   if (!token) {
-    return <EmptyState title="ログインが必要です" description="設定ページで Bearer Token を保存するとフィードを表示できます。" />;
+    return <EmptyState title={t("feed.loginRequiredTitle")} description={t("feed.loginRequiredDescription")} />;
   }
 
   const videos = feedQuery.data?.videos ?? [];
 
   return (
     <div className={styles.container}>
-      <Text size={700} weight="bold">フィード</Text>
-      {feedQuery.isLoading ? <LoadingGrid /> : null}
-      {feedQuery.isError ? <ErrorState title="フィード取得失敗" message="/auth/feed の取得に失敗しました。" onRetry={() => feedQuery.refetch()} /> : null}
-      {!feedQuery.isLoading && !feedQuery.isError && videos.length === 0 ? (
-        <EmptyState title="フィードが空です" description="フォロー中チャンネルの動画がありません。" />
-      ) : null}
-      {videos.length > 0 ? <VideoGrid items={videos} /> : null}
+      <PageTitle title={t("feed.title")} />
+      <QueryStateView
+        isLoading={feedQuery.isLoading}
+        isError={feedQuery.isError}
+        isEmpty={videos.length === 0}
+        errorTitle={t("feed.fetchErrorTitle")}
+        errorMessage={t("feed.fetchErrorMessage")}
+        emptyTitle={t("feed.emptyTitle")}
+        emptyDescription={t("feed.emptyDescription")}
+        onRetry={() => feedQuery.refetch()}
+      >
+        <VideoGrid items={videos} />
+      </QueryStateView>
     </div>
   );
 };

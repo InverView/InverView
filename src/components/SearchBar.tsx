@@ -11,11 +11,14 @@ import {
 import { Search20Regular, History20Regular, ArrowTrending20Regular } from "@fluentui/react-icons";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { getSearchSuggestions } from "../lib/invidiousClient";
 import { queryKeys } from "../lib/queryKeys";
 import { addRecentSearch, getRecentSearches } from "../lib/recentSearch";
 import { withViewTransition } from "../lib/webPlatform";
 import { useSettingsStore } from "../store/settingsStore";
+
+const SUGGESTION_QUERY_GC_TIME_MS = 60_000;
 
 interface SearchBarProps {
   initialQuery?: string;
@@ -70,6 +73,7 @@ const useStyles = makeStyles({
 
 export const SearchBar = ({ initialQuery = "" }: SearchBarProps): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [q, setQ] = useState(initialQuery);
   const [isOpen, setIsOpen] = useState(false);
@@ -108,7 +112,7 @@ export const SearchBar = ({ initialQuery = "" }: SearchBarProps): JSX.Element =>
     queryFn: ({ signal }) => getSearchSuggestions(debouncedQ, signal),
     enabled: showSearchSuggestions && debouncedQ.length > 1,
     staleTime: 1000 * 45,
-    gcTime: 1000 * 60 * 5,
+    gcTime: SUGGESTION_QUERY_GC_TIME_MS,
   });
 
   const suggestions = useMemo(() => {
@@ -147,7 +151,7 @@ export const SearchBar = ({ initialQuery = "" }: SearchBarProps): JSX.Element =>
     <div ref={containerRef} className={styles.container}>
       <Input
         className={styles.input}
-        placeholder="動画を検索"
+        placeholder={t("searchBar.placeholder")}
         value={q}
         onChange={onInputChange}
         onFocus={() => setIsOpen(true)}
@@ -174,7 +178,7 @@ export const SearchBar = ({ initialQuery = "" }: SearchBarProps): JSX.Element =>
           {suggestionQuery.isFetching && (
             <div className={styles.loadingRow}>
               <Spinner size="tiny" />
-              <Text>サジェスト取得中...</Text>
+              <Text>{t("searchBar.loadingSuggestions")}</Text>
             </div>
           )}
         </div>

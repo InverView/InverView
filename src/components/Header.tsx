@@ -31,6 +31,7 @@ import {
   Info24Regular,
 } from "@fluentui/react-icons";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { SearchBar } from "./SearchBar";
 import { useSettings } from "../hooks/useSettings";
 import { withViewTransition } from "../lib/webPlatform";
@@ -44,7 +45,7 @@ const useStyles = makeStyles({
     position: "relative",
     zIndex: 20,
     borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-    backgroundColor: "#0f6cbd",
+    backgroundColor: "var(--app-accent)",
     color: "#ffffff",
     padding: "0 24px 0 16px",
     boxSizing: "border-box",
@@ -101,6 +102,7 @@ const useStyles = makeStyles({
 
 export const Header = (): JSX.Element => {
   const styles = useStyles();
+  const { t } = useTranslation();
   const location = useLocation();
   const { search } = location;
   const navigate = useNavigate();
@@ -127,8 +129,8 @@ export const Header = (): JSX.Element => {
           className={styles.sidebarToggle}
           appearance="subtle"
           icon={<Navigation24Regular />}
-          title={settings.sidebarCollapsed ? "サイドバーを展開" : "サイドバーを最小化"}
-          aria-label={settings.sidebarCollapsed ? "サイドバーを展開" : "サイドバーを最小化"}
+          title={settings.sidebarCollapsed ? t("header.expandSidebar") : t("header.collapseSidebar")}
+          aria-label={settings.sidebarCollapsed ? t("header.expandSidebar") : t("header.collapseSidebar")}
           onClick={() => setSetting("sidebarCollapsed", !settings.sidebarCollapsed)}
         />
         <Link to="/" className={styles.logoLink}>
@@ -145,18 +147,18 @@ export const Header = (): JSX.Element => {
               <Button
                 appearance="subtle"
                 icon={<Settings24Regular />}
-                title="設定メニュー"
-                aria-label="設定メニュー"
+                title={t("header.settingsMenu")}
+                aria-label={t("header.settingsMenu")}
               />
             </MenuTrigger>
             <MenuPopover>
               <MenuList>
                 <MenuGroup>
-                  <MenuGroupHeader>外観</MenuGroupHeader>
+                  <MenuGroupHeader>{t("header.appearance")}</MenuGroupHeader>
                   <Menu>
                     <MenuTrigger disableButtonEnhancement>
                       <MenuItem icon={settings.theme === "dark" ? <WeatherMoon24Regular /> : <WeatherSunny24Regular />}>
-                        テーマ: {settings.theme}
+                        {t("header.theme", { value: settings.theme })}
                       </MenuItem>
                     </MenuTrigger>
                     <MenuPopover>
@@ -174,11 +176,11 @@ export const Header = (): JSX.Element => {
                 </MenuGroup>
 
                 <MenuGroup>
-                  <MenuGroupHeader>再生</MenuGroupHeader>
+                  <MenuGroupHeader>{t("header.playback")}</MenuGroupHeader>
                   <Menu>
                     <MenuTrigger disableButtonEnhancement>
                       <MenuItem icon={<VideoClip24Regular />}>
-                        画質: {settings.quality}
+                        {t("header.quality", { value: settings.quality })}
                       </MenuItem>
                     </MenuTrigger>
                     <MenuPopover>
@@ -197,7 +199,7 @@ export const Header = (): JSX.Element => {
                   <Menu>
                     <MenuTrigger disableButtonEnhancement>
                       <MenuItem icon={<Globe24Regular />}>
-                        地域: {settings.region}
+                        {t("header.region", { value: settings.region })}
                       </MenuItem>
                     </MenuTrigger>
                     <MenuPopover>
@@ -218,13 +220,13 @@ export const Header = (): JSX.Element => {
                   icon={<Open24Regular />}
                   onClick={() => withViewTransition(() => navigate("/settings", { state: { backgroundLocation: location } }))}
                 >
-                  すべての設定を表示
+                  {t("header.showAllSettings")}
                 </MenuItem>
                 <MenuItem
                   icon={<Info24Regular />}
                   onClick={() => setIsAboutOpen(true)}
                 >
-                  InverViewについて
+                  {t("header.aboutInverView")}
                 </MenuItem>
               </MenuList>
             </MenuPopover>
@@ -235,14 +237,14 @@ export const Header = (): JSX.Element => {
       <Dialog open={isAboutOpen} onOpenChange={(_, data) => setIsAboutOpen(data.open)}>
         <DialogSurface>
           <DialogBody>
-            <DialogTitle>InverViewについて</DialogTitle>
+            <DialogTitle>{t("header.aboutInverView")}</DialogTitle>
             <DialogContent>
-              InverView は Invidious 互換の動画クライアントです。<br />
-              PWA と各種 Web API に対応し、軽量で快適な視聴体験を目指しています。
+              {t("header.aboutDescriptionLine1")}<br />
+              {t("header.aboutDescriptionLine2")}
             </DialogContent>
             <DialogActions>
               <Button appearance="primary" onClick={() => setIsAboutOpen(false)}>
-                閉じる
+                {t("common.close")}
               </Button>
             </DialogActions>
           </DialogBody>

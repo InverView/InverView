@@ -16,10 +16,16 @@ import {
   MenuItem,
 } from "@fluentui/react-components";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons";
-import { useNavigate } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { formatDuration, formatRelativeDateJa, formatViewCountJa } from "../lib/format";
-import { pickBestThumbnail } from "../lib/media";
+import { getChannel } from "../lib/invidiousClient";
+import { pickBestThumbnail, resolveMediaUrl } from "../lib/media";
+import { queryKeys } from "../lib/queryKeys";
+import { notifyError, notifySuccess } from "../lib/notifications";
+import { getTvSessionId } from "../lib/tvSync";
 import { withViewTransition } from "../lib/webPlatform";
+import { triggerHaptic } from "../lib/haptic";
 import { useSettingsStore } from "../store/settingsStore";
 import type { VideoObject } from "../types/invidious";
 import { BadgeRow } from "./BadgeRow";
@@ -134,32 +140,101 @@ const VideoCardBase = ({
 }: VideoCardProps): JSX.Element => {
   const styles = useStyles();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const tvSession = searchParams.get("tvSession") || getTvSessionId();
   const baseUrl = useSettingsStore((state) => state.apiBaseUrl);
-  const thumbnail = useMemo(() => pickBestThumbnail(video.videoThumbnails), [video.videoThumbnails]);
+  const resolvedVideoId = useMemo(() => {
+    if (video.videoId) return video.videoId;
+    if (video.type === "playlist" && video.playlistId && video.playlistId.length === 11) {
+      return video.playlistId;
+    }
+    return "";
+  }, [video.videoId, video.type, video.playlistId]);
+
+  const thumbnail = useMemo(() => {
+    const picked = pickBestThumbnail(video.videoThumbnails);
+    if (picked) return picked;
+
+    if (video.playlistThumbnail) {
+      return {
+        quality: "medium",
+        url: video.playlistThumbnail,
+        width: 320,
+        height: 180,
+      };
+    }
+
+    if (resolvedVideoId) {
+      return {
+        quality: "medium",
+        url: `https://i.ytimg.com/vi/${resolvedVideoId}/mqdefault.jpg`,
+        width: 320,
+        height: 180,
+      };
+    }
+    return undefined;
+  }, [video.videoThumbnails, video.playlistThumbnail, resolvedVideoId]);
   const authorThumbnail = useMemo(
     () => (video.authorThumbnails ? pickBestThumbnail(video.authorThumbnails) : null),
     [video.authorThumbnails],
   );
+  const fallbackAvatarQuery = useQuery({
+    queryKey: [...queryKeys.channel(video.authorId), "avatar"],
+    queryFn: ({ signal }) => getChannel(video.authorId, signal),
+    enabled: !horizontal && !authorThumbnail && !!video.authorId,
+    staleTime: 1000 * 60 * 30,
+  });
+  const fallbackAuthorThumbnail = useMemo(
+    () => pickBestThumbnail(fallbackAvatarQuery.data?.authorThumbnails),
+    [fallbackAvatarQuery.data?.authorThumbnails],
+  );
+  const avatarSrc = resolveMediaUrl(authorThumbnail?.url || fallbackAuthorThumbnail?.url, baseUrl) || undefined;
 
   const handleNavigate = useCallback(() => {
+    if (!resolvedVideoId) return; // IDがない場合は遷移しない
+
+    triggerHaptic("click");
+    if (tvSession) {
+      void (async () => {
+        try {
+          const response = await fetch(`/tv-sync/session/${encodeURIComponent(tvSession)}/command`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ videoId: resolvedVideoId }),
+          });
+          if (!response.ok) {
+            notifyError("TVへの送信に失敗しました。");
+            return;
+          }
+          notifySuccess("TVへ送信しました");
+        } catch {
+          notifyError("TVへの送信に失敗しました。");
+        }
+      })();
+      return;
+    }
     if (isShorts) {
       const query = authorId ? `?authorId=${authorId}` : "";
-      withViewTransition(() => navigate(`/shorts/${video.videoId}${query}`));
+      withViewTransition(() => navigate(`/shorts/${resolvedVideoId}${query}`));
     } else {
-      withViewTransition(() => navigate(`/watch/${video.videoId}?autoplay=1`));
+      withViewTransition(() => navigate(`/watch/${resolvedVideoId}?autoplay=1`));
     }
-  }, [authorId, isShorts, navigate, video.videoId]);
+  }, [authorId, isShorts, navigate, resolvedVideoId, tvSession]);
 
   const handleChannelNavigate = useCallback(() => {
+    triggerHaptic("click");
     withViewTransition(() => navigate(`/channel/${video.authorId}`));
   }, [navigate, video.authorId]);
 
   return (
     <Card
       className={`${styles.card} ${horizontal ? styles.horizontalCard : styles.verticalCard}`}
+      data-tv-focusable="true"
+      tabIndex={0}
       onClick={handleNavigate}
       onKeyDown={(ev) => {
-        if (ev.key === "Enter") {
+        if (ev.key === "Enter" || ev.key === " ") {
+          ev.preventDefault();
           handleNavigate();
         }
       }}
@@ -171,7 +246,7 @@ const VideoCardBase = ({
         <div style={{ position: "relative", width: "100%", height: "100%" }}>
           <Thumbnail
             src={thumbnail?.url}
-            sources={video.videoThumbnails}
+            sources={video.videoThumbnails?.length ? video.videoThumbnails : (thumbnail ? [thumbnail] : undefined)}
             alt={video.title}
             baseUrl={baseUrl}
             squareBottomCorners={!horizontal}
@@ -217,10 +292,10 @@ const VideoCardBase = ({
             style={{ minWidth: 0 }}
             image={
               <Avatar
-                size={32}
+                size={36}
                 name={video.author}
                 image={{
-                  src: authorThumbnail?.url ? (authorThumbnail.url.startsWith("http") ? authorThumbnail.url : `${baseUrl}${authorThumbnail.url}`) : undefined,
+                  src: avatarSrc,
                 }}
                 style={{ cursor: "pointer" }}
                 onClick={(e) => {
@@ -300,6 +375,8 @@ export const VideoCard = memo(VideoCardBase, (prev, next) => {
     prev.authorId === next.authorId &&
     prev.prioritizeThumbnail === next.prioritizeThumbnail &&
     prev.video.videoId === next.video.videoId &&
+    prev.video.playlistId === next.video.playlistId &&
+    prev.video.playlistThumbnail === next.video.playlistThumbnail &&
     prev.video.title === next.video.title &&
     prev.video.published === next.video.published &&
     prev.video.viewCount === next.video.viewCount &&
