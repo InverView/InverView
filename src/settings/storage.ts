@@ -15,10 +15,7 @@ export const mergeSettings = (raw: unknown): AppSettings => {
   const legacyInstance = typeof raw.apiBaseUrl === "string" ? raw.apiBaseUrl : undefined;
   const legacyTheme = raw.theme === "amoled" ? "amoled" : raw.theme;
 
-  const shouldRewriteDevYoutubeProxy =
-    import.meta.env.DEV &&
-    !import.meta.env.VITE_ELECTRON_LOCAL_PROXY_BASE_URL &&
-    !import.meta.env.VITE_CAPACITOR_LOCAL_PROXY_BASE_URL;
+
 
   const merged: AppSettings = {
     ...defaultSettings,
@@ -38,10 +35,8 @@ export const mergeSettings = (raw: unknown): AppSettings => {
         : defaultSettings.audioTrackLanguage,
     token: typeof raw.token === "string" ? raw.token : "",
     youtubeJsProxyUrl:
-      typeof raw.youtubeJsProxyUrl === "string"
-        ? (shouldRewriteDevYoutubeProxy && raw.youtubeJsProxyUrl.trim() === "/youtubejs-proxy"
-            ? defaultSettings.youtubeJsProxyUrl
-            : raw.youtubeJsProxyUrl)
+      typeof raw.youtubeJsProxyUrl === "string" && raw.youtubeJsProxyUrl.trim()
+        ? raw.youtubeJsProxyUrl
         : defaultSettings.youtubeJsProxyUrl,
     youtubeAuthMode:
       raw.youtubeAuthMode === "cookie" || raw.youtubeAuthMode === "tv_oauth" || raw.youtubeAuthMode === "none"

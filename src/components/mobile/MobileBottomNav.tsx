@@ -1,4 +1,4 @@
-import { Text, makeStyles, tokens } from "@fluentui/react-components";
+import { Text, makeStyles, tokens, mergeClasses } from "@fluentui/react-components";
 import {
   Home24Regular,
   Home24Filled,
@@ -149,7 +149,7 @@ export const MobileBottomNav = ({ onOpenSearch }: MobileBottomNavProps): JSX.Ele
             return (
               <button
                 key={item.key}
-                className={`${styles.item} ${active ? styles.itemActive : ""}`}
+                className={mergeClasses(styles.item, active ? styles.itemActive : undefined)}
                 style={{
                   padding: settings.hideMobileNavLabels ? "6px 0" : undefined,
                   justifyContent: "center",
@@ -168,7 +168,7 @@ export const MobileBottomNav = ({ onOpenSearch }: MobileBottomNavProps): JSX.Ele
           return (
             <button
               key={item.key}
-              className={`${styles.item} ${active ? styles.itemActive : ""}`}
+              className={mergeClasses(styles.item, active ? styles.itemActive : undefined)}
               style={{
                 padding: settings.hideMobileNavLabels ? "6px 0" : undefined,
                 justifyContent: "center",

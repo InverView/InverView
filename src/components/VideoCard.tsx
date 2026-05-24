@@ -14,6 +14,7 @@ import {
   MenuPopover,
   MenuList,
   MenuItem,
+  mergeClasses,
 } from "@fluentui/react-components";
 import { MoreHorizontal20Regular } from "@fluentui/react-icons";
 import { useQuery } from "@tanstack/react-query";
@@ -228,7 +229,7 @@ const VideoCardBase = ({
 
   return (
     <Card
-      className={`${styles.card} ${horizontal ? styles.horizontalCard : styles.verticalCard}`}
+      className={mergeClasses(styles.card, horizontal ? styles.horizontalCard : styles.verticalCard)}
       data-tv-focusable="true"
       tabIndex={0}
       onClick={handleNavigate}
@@ -264,14 +265,14 @@ const VideoCardBase = ({
         <CardHeader
           style={{ padding: "4px 0", minWidth: 0 }}
           header={
-            <Text className={`${styles.title} ${styles.horizontalTitle}`} block>
+            <Text className={mergeClasses(styles.title, styles.horizontalTitle)} block>
               {video.title}
             </Text>
           }
           description={
             <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
               <Caption1
-                className={`${styles.metadata} ${styles.horizontalMetadata} ${styles.authorLink}`}
+                className={mergeClasses(styles.metadata, styles.horizontalMetadata, styles.authorLink)}
                 onClick={(e) => {
                   e.stopPropagation();
                   handleChannelNavigate();
@@ -279,7 +280,7 @@ const VideoCardBase = ({
               >
                 {video.author}
               </Caption1>
-              <Caption1 className={`${styles.metadata} ${styles.horizontalMetadata}`}>
+              <Caption1 className={mergeClasses(styles.metadata, styles.horizontalMetadata)}>
                 {formatViewCountJa(video.viewCount, video.viewCountText)} ・{" "}
                 {formatRelativeDateJa(video.published, video.publishedText)}
               </Caption1>
@@ -312,7 +313,7 @@ const VideoCardBase = ({
             description={
               <div style={{ display: "flex", flexDirection: "column", gap: "2px" }}>
                 <Caption1
-                  className={`${styles.metadata} ${styles.authorLink}`}
+                  className={mergeClasses(styles.metadata, styles.authorLink)}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleChannelNavigate();

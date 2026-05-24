@@ -40,7 +40,7 @@ const LandingRedirect = (): JSX.Element => {
   if (settings.startPage === "popular") return <Navigate to="/?homeTab=popular" replace />;
   if (settings.startPage === "subscriptions") return <Navigate to="/subscriptions" replace />;
   if (settings.startPage === "search") return <Navigate to="/search" replace />;
-  return <Navigate to="/?homeTab=trending" replace />;
+  return <Navigate to="/?homeTab=popular" replace />;
 };
 
 const LaunchIntentRedirect = (): JSX.Element => {

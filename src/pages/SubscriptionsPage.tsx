@@ -21,6 +21,7 @@ import { getCurrentLocalUser } from "../lib/localUsers";
 import { queryKeys } from "../lib/queryKeys";
 import { getAuthFeed, getChannel } from "../lib/invidiousClient";
 import { useSettingsStore } from "../store/settingsStore";
+import { settledWithConcurrencyLimit } from "../lib/promiseLimit";
 import type { ChannelObject } from "../types/invidious";
 
 const useStyles = makeStyles({
@@ -67,6 +68,8 @@ export const SubscriptionsPage = (): JSX.Element => {
     queryKey: queryKeys.authSubscriptions,
     queryFn: ({ signal }) => getAuthSubscriptions(signal),
     enabled: !!token,
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
   });
 
   const localSubscriptionIdsQuery = useQuery({
@@ -79,7 +82,7 @@ export const SubscriptionsPage = (): JSX.Element => {
     queryKey: [...queryKeys.localSubscriptions(localUser.id), "channels"],
     queryFn: async ({ signal }) => {
       const ids = getLocalSubscriptionIds();
-      const settled = await Promise.allSettled(ids.map((id) => getChannel(id, signal)));
+      const settled = await settledWithConcurrencyLimit(ids, 3, (id) => getChannel(id, signal));
       return settled
         .filter((item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof getChannel>>> => item.status === "fulfilled")
         .map((item) => item.value);

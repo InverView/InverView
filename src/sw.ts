@@ -52,10 +52,14 @@ registerRoute(
 
 registerRoute(
   ({ url, request }) =>
-    request.destination === "script" ||
-    request.destination === "style" ||
-    request.destination === "font" ||
-    url.pathname.endsWith(".json"),
+    (request.destination === "script" ||
+      request.destination === "style" ||
+      request.destination === "font" ||
+      url.pathname.endsWith(".json")) &&
+    !url.pathname.startsWith("/api-proxy") &&
+    !url.pathname.startsWith("/youtubejs-proxy") &&
+    !url.pathname.startsWith("/tv-sync") &&
+    !url.pathname.startsWith("/companion"),
   new StaleWhileRevalidate({
     cacheName: "app-static-v1",
     plugins: [new CacheableResponsePlugin({ statuses: [0, 200] })],
@@ -63,7 +67,13 @@ registerRoute(
 );
 
 registerRoute(
-  ({ url }) => url.origin === self.location.origin && url.pathname.startsWith("/"),
+  ({ url }) =>
+    url.origin === self.location.origin &&
+    url.pathname.startsWith("/") &&
+    !url.pathname.startsWith("/api-proxy") &&
+    !url.pathname.startsWith("/youtubejs-proxy") &&
+    !url.pathname.startsWith("/tv-sync") &&
+    !url.pathname.startsWith("/companion"),
   new NetworkFirst({
     cacheName: "document-pages-v1",
     networkTimeoutSeconds: 3,
