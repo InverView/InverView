@@ -162,8 +162,10 @@ export const SearchPage = (): JSX.Element => {
   });
 
   const orderedSearchResults = useMemo(() => {
-    const items = searchQuery.data ?? [];
-    const firstChannelIndex = items.findIndex((item) => item.type === "channel");
+    const items = searchQuery.data;
+    if (!Array.isArray(items)) return [];
+    
+    const firstChannelIndex = items.findIndex((item) => item && item.type === "channel");
     if (firstChannelIndex <= 0) return items;
 
     const firstChannel = items[firstChannelIndex];
@@ -286,10 +288,10 @@ export const SearchPage = (): JSX.Element => {
       {q ? (
         <QueryStateView
           isLoading={searchQuery.isLoading}
-          isError={searchQuery.isError}
-          isEmpty={(searchQuery.data?.length ?? 0) === 0}
+          isError={searchQuery.isError || (!!searchQuery.data && (!Array.isArray(searchQuery.data) || "error" in (searchQuery.data as any)))}
+          isEmpty={!Array.isArray(searchQuery.data) || searchQuery.data.length === 0}
           errorTitle={t("search.fetchErrorTitle")}
-          errorMessage={t("search.fetchErrorMessage")}
+          errorMessage={(searchQuery.data as any)?.error || t("search.fetchErrorMessage")}
           emptyTitle={t("search.emptyTitle")}
           emptyDescription={t("search.emptyDescription")}
           onRetry={() => void searchQuery.refetch()}

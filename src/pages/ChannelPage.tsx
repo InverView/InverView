@@ -137,7 +137,6 @@ const useStyles = makeStyles({
   },
 });
 
-const INFINITE_QUERY_MAX_PAGES = 4;
 const INFINITE_QUERY_GC_TIME_MS = 60_000;
 
 export const ChannelPage = (): JSX.Element => {
@@ -207,7 +206,6 @@ export const ChannelPage = (): JSX.Element => {
     getNextPageParam: (lastPage) => lastPage.continuation,
     initialPageParam: undefined as string | undefined,
     enabled: !!authorId && isVideoTab,
-    maxPages: INFINITE_QUERY_MAX_PAGES,
     gcTime: INFINITE_QUERY_GC_TIME_MS,
   });
 

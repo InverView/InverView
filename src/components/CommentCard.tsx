@@ -5,6 +5,7 @@ import {
   Avatar,
   Card,
   Button,
+  mergeClasses,
 } from "@fluentui/react-components";
 import { useState, useRef, useEffect, type MouseEvent } from "react";
 import DOMPurify from "dompurify";
@@ -215,7 +216,7 @@ export const CommentCard = ({ comment, onTimestampClick }: CommentCardProps): JS
         </div>
         <div
           ref={textRef}
-          className={`${styles.commentText} ${!isExpanded && showExpand ? styles.commentTextTruncated : ""}`}
+          className={mergeClasses(styles.commentText, !isExpanded && showExpand ? styles.commentTextTruncated : undefined)}
           onClick={handleCommentClick}
           dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(comment.contentHtml || comment.content) }}
         />

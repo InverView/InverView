@@ -111,9 +111,7 @@ export const defaultSettings: AppSettings = {
   companionSecret: defaultCompanionSecret,
   youtubeJsProxyUrl: isNativeApp
     ? `${(isElectron ? electronProxyBaseUrl : capacitorProxyBaseUrl).replace(/\/+$/, "")}/youtubejs-proxy`
-    : isDev
-      ? import.meta.env.VITE_YOUTUBEJS_PROXY_URL || `${webLocalProxyBaseUrl.replace(/\/+$/, "")}/youtubejs-proxy`
-      : import.meta.env.VITE_YOUTUBEJS_PROXY_URL || "/youtubejs-proxy",
+    : import.meta.env.VITE_YOUTUBEJS_PROXY_URL || "/youtubejs-proxy",
   youtubeAuthMode: "none",
   youtubeCookie: "",
   youtubeTvOauthCredentials: "",

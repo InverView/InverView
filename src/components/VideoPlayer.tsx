@@ -595,12 +595,6 @@ export const VideoPlayer = ({
         }
 
         if (manifestUrl) {
-          player.configure({
-            streaming: {
-              useNativeHlsOnSafari: true,
-            }
-          });
-
           let startPosition = initialPositionSeconds;
           if ((window as any).lastPlaybackVideoId === video.videoId && typeof (window as any).lastPlaybackPosition === "number") {
             startPosition = (window as any).lastPlaybackPosition;

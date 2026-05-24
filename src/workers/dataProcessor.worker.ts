@@ -6,6 +6,10 @@ ctx.addEventListener("message", (e: MessageEvent) => {
 
   if (type === "filterAndSort") {
     const { videos, query, sortBy, sortOrder } = payload;
+    if (!Array.isArray(videos)) {
+      ctx.postMessage({ messageId, result: [] });
+      return;
+    }
     let result = [...videos];
 
     // 1. 重複排除
@@ -53,11 +57,11 @@ ctx.addEventListener("message", (e: MessageEvent) => {
   } else if (type === "mergeTrendingAndSubscriptions") {
     const { trendingVideos, subscribedVideos } = payload;
 
-    const filterOutLive = (videos: any[]): any[] =>
-      videos.filter((item) => !item.liveNow && !item.isUpcoming);
+    const filterOutLive = (videos: any): any[] =>
+      Array.isArray(videos) ? videos.filter((item) => item && !item.liveNow && !item.isUpcoming) : [];
 
-    const trendingItems = filterOutLive(trendingVideos ?? []);
-    const subscribedItems = filterOutLive(subscribedVideos ?? []);
+    const trendingItems = filterOutLive(trendingVideos);
+    const subscribedItems = filterOutLive(subscribedVideos);
 
     const seen = new Set<string>();
     const merged: any[] = [];

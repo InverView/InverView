@@ -6,6 +6,7 @@ import {
   makeStyles,
   tokens,
   type TabListProps,
+  mergeClasses,
 } from "@fluentui/react-components";
 import { ArrowClockwise24Regular } from "@fluentui/react-icons";
 import { useEffect, useRef, useState } from "react";
@@ -23,6 +24,7 @@ import { getCurrentLocalUser } from "../lib/localUsers";
 import { getLocalSubscriptionIds } from "../lib/localSubscriptions";
 import type { VideoObject } from "../types/invidious";
 import { mergeTrendingAndSubscriptions } from "../lib/workerClient";
+import { settledWithConcurrencyLimit } from "../lib/promiseLimit";
 
 
 const trendCategories = ["default", "music", "gaming", "movies"] as const;
@@ -103,7 +105,7 @@ export const HomePage = (): JSX.Element => {
   const { t } = useTranslation();
   const [isScrolledLeft, setIsScrolledLeft] = useState(false);
   
-  const initialTab = searchParams.get("homeTab") === "popular" ? "popular" : "trending";
+  const initialTab = searchParams.get("homeTab") === "trending" ? "trending" : "popular";
   const rawCategory = searchParams.get("category");
   const category = rawCategory && isTrendCategory(rawCategory) ? rawCategory : "default";
 
@@ -132,12 +134,14 @@ export const HomePage = (): JSX.Element => {
     queryKey: [...queryKeys.localSubscriptions(localUser.id), "home-mixed-videos"],
     queryFn: async ({ signal }) => {
       const ids = getLocalSubscriptionIds().slice(0, 12);
-      const settled = await Promise.allSettled(
-        ids.map((id) => getChannel(id, signal)),
+      const settled = await settledWithConcurrencyLimit(
+        ids,
+        3,
+        (id) => getChannel(id, signal),
       );
       return settled
         .filter((item): item is PromiseFulfilledResult<Awaited<ReturnType<typeof getChannel>>> => item.status === "fulfilled")
-        .flatMap((item) => (item.value.latestVideos ?? []).slice(0, 2));
+        .flatMap((item) => (Array.isArray(item.value.latestVideos) ? item.value.latestVideos : []).slice(0, 2));
     },
     enabled: initialTab !== "popular" && !token,
     placeholderData: (previousData) => previousData,
@@ -148,10 +152,10 @@ export const HomePage = (): JSX.Element => {
 
   useEffect(() => {
     let active = true;
-    const trendingData = trendingQuery.data ?? [];
+    const trendingData = Array.isArray(trendingQuery.data) ? trendingQuery.data : [];
     const subscribedData = token
-      ? (authFeedQuery.data?.videos ?? [])
-      : (localSubscribedVideosQuery.data ?? []);
+      ? (Array.isArray(authFeedQuery.data?.videos) ? authFeedQuery.data.videos : [])
+      : (Array.isArray(localSubscribedVideosQuery.data) ? localSubscribedVideosQuery.data : []);
 
     if (trendingData.length === 0 && subscribedData.length === 0) {
       setMergedVideos([]);
@@ -234,7 +238,10 @@ export const HomePage = (): JSX.Element => {
   };
 
   const renderPopular = (): JSX.Element => {
-    const items = (popularQuery.data ?? []).filter((item) => !item.liveNow && !item.isUpcoming);
+    const data = popularQuery.data;
+    const items = Array.isArray(data)
+      ? data.filter((item) => item && !item.liveNow && !item.isUpcoming)
+      : [];
     return (
       <QueryStateView
         isLoading={popularQuery.isLoading}
@@ -293,7 +300,7 @@ export const HomePage = (): JSX.Element => {
   };
 
   return (
-    <div className={`${styles.container} ${sidebarAnimating ? styles.sidebarResponsiveMotion : ""}`}>
+    <div className={mergeClasses(styles.container, sidebarAnimating ? styles.sidebarResponsiveMotion : undefined)}>
       <div className={styles.tabHeader}>
         <TabList selectedValue={initialTab} onTabSelect={onTabSelect}>
           <Tab value="popular">{t("home.popularTab")}</Tab>

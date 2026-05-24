@@ -790,11 +790,12 @@ export const WatchPage = (): JSX.Element => {
     return <WatchLoadingSkeleton theaterMode={settings.theaterMode} videoId={videoId} baseUrl={baseUrl} />;
   }
 
-  if (videoQuery.isError || !video) {
+  if (videoQuery.isError || !video || !video.videoId || (video as any).error) {
+    const errMsg = (video as any)?.error || t("watch.fetchErrorMessage");
     return (
       <ErrorState
         title={t("watch.fetchErrorTitle")}
-        message={t("watch.fetchErrorMessage")}
+        message={typeof errMsg === "string" ? errMsg : JSON.stringify(errMsg)}
         onRetry={() => videoQuery.refetch()}
       />
     );
@@ -1074,11 +1075,11 @@ export const WatchPage = (): JSX.Element => {
           </Card>
         )}
 
-        {(captionsQuery.data?.length ?? 0) > 0 && (
+        {Array.isArray(captionsQuery.data) && captionsQuery.data.length > 0 && (
           <div className={styles.infoSection}>
             <Text weight="semibold">{t("watch.captions")}</Text>
             <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-              {(captionsQuery.data ?? []).map((caption, index) => (
+              {captionsQuery.data.map((caption, index) => (
                 <Link
                   key={`${caption.languageCode ?? "caption"}-${index}`}
                   href={caption.url || "#"}

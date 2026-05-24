@@ -65,15 +65,15 @@ export default defineConfig({
     allowedHosts: ["youtube.tsub4sa.xyz"],
     proxy: {
       "/tv-sync": {
-        target: "http://localhost:8282",
+        target: "http://127.0.0.1:8282",
         changeOrigin: true,
       },
       "/api-proxy": {
-        target: "http://localhost:8282",
+        target: "http://127.0.0.1:8282",
         changeOrigin: true,
       },
       "/youtubejs-proxy": {
-        target: "http://localhost:8282",
+        target: "http://127.0.0.1:8282",
         changeOrigin: true,
         agent: new http.Agent({ keepAlive: false }),
       },
