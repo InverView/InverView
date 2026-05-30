@@ -707,6 +707,7 @@ export const SettingsPage = (): JSX.Element => {
                       {t("settings.defaultAudioTrackLanguageDescription")}
                     </Caption1>
                   </div>
+                </SectionCard>
                 <SectionCard title={t("settings.accountSection")}>
                   <Text size={200} className={styles.helperText}>
                     {t("settings.accountDescription")}
