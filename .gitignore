@@ -29,3 +29,20 @@ coverage
 *.njsproj
 *.sln
 *.sw?
+
+# Capacitor / Android build artifacts
+/android/.gradle
+/android/app/build
+/android/build
+/android/local.properties
+
+# Electron and release artifacts
+/release
+/dist-electron
+
+# Gradle wrapper files and caches
+/gradle
+
+# Project-specific temporary files
+*.tmp
+*.temp
