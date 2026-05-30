@@ -80,16 +80,28 @@ const useStyles = makeStyles({
     overflowY: "auto",
     overflowX: "hidden",
     padding: "8px 12px",
+    scrollbarWidth: "none",
+    "&::-webkit-scrollbar": {
+      display: "none",
+      width: 0,
+      height: 0,
+    },
   },
   topSectionCollapsed: {
-    padding: "14px 8px 8px 8px",
+    padding: "8px 12px",
+    scrollbarWidth: "none",
+    "&::-webkit-scrollbar": {
+      display: "none",
+      width: 0,
+      height: 0,
+    },
   },
   bottomSection: {
     padding: "0 12px 12px 12px",
     flexShrink: 0,
   },
   bottomSectionCollapsed: {
-    padding: "0 8px 12px 8px",
+    padding: "0 12px 12px 12px",
   },
   navItem: {
     height: "44px",
@@ -97,12 +109,16 @@ const useStyles = makeStyles({
     borderRadius: "8px",
     position: "relative",
     color: "var(--sidebar-item-fg)",
+    padding: "0 8px !important",
     transition: "background-color 120ms linear, color 120ms linear, opacity 120ms linear",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "flex-start !important",
     "& .fui-NavItem__content": {
-      marginLeft: "16px",
+      marginLeft: "16px !important",
       fontSize: "14px",
       fontWeight: tokens.fontWeightSemibold,
-      whiteSpace: "nowrap",
+      whiteSpace: "nowrap !important",
       color: "var(--sidebar-item-fg)",
     },
     "& .fui-NavItem__icon": {
@@ -111,6 +127,7 @@ const useStyles = makeStyles({
       height: "24px",
       color: "var(--sidebar-item-fg)",
       flexShrink: 0,
+      margin: "0 !important",
     },
     "&:hover": {
       backgroundColor: "var(--sidebar-item-hover)",
@@ -147,7 +164,7 @@ const useStyles = makeStyles({
       },
       "& .fui-NavItem__icon": {
         color: "var(--sidebar-item-fg-selected)",
-        fontSize: "24px", // Ensure size remains 24px
+        fontSize: "24px",
       },
     },
     "&.fui-NavItem--selected::before": {
@@ -155,10 +172,10 @@ const useStyles = makeStyles({
     },
   },
   navItemCollapsed: {
-    justifyContent: "center",
-    padding: "0 !important",
+    padding: "0 8px !important",
+    justifyContent: "flex-start !important",
     "& .fui-NavItem__content": {
-      display: "none",
+      display: "none !important",
     },
     "& .fui-NavItem__icon": {
       margin: "0 !important",
@@ -202,8 +219,6 @@ export const Sidebar = ({
     settings.theme === "amoled" ||
     (settings.theme === "system" && prefersDark);
   const isAmoled = settings.theme === "amoled" || (settings.amoledEnabled && isDarkSidebar);
-  const favoriteChannelIds = settings.favoriteShortsChannelIds;
-
   const isCollapsed = !mobile && settings.sidebarCollapsed;
 
   const selectedKey = location.pathname + location.search;
@@ -221,9 +236,6 @@ export const Sidebar = ({
     ...(!settings.hideShorts
       ? [
           { icon: <ShortsIcon />, label: t("nav.shorts"), value: "/shorts" },
-          ...(favoriteChannelIds.length > 0
-            ? [{ icon: <Star24Regular />, label: t("nav.favoriteShorts"), value: `/shorts?authorId=${favoriteChannelIds.join(",")}&shuffle=1` }]
-            : []),
         ]
       : []),
     { icon: <PopularIcon />, label: t("nav.popular"), value: "/?homeTab=popular" },

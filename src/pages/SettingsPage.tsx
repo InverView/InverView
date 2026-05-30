@@ -17,6 +17,8 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  TabList,
+  Tab,
 } from "@fluentui/react-components";
 import { Dismiss24Regular } from "@fluentui/react-icons";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
@@ -61,6 +63,29 @@ const firstNonEmpty = (...values: Array<string | undefined>): string => {
   return "";
 };
 
+const audioTrackLanguageOptions = [
+  { value: "auto", labelKey: "settings.audioTrackLanguageAuto" },
+  { value: "ja", label: "Japanese (ja)" },
+  { value: "en", label: "English (en)" },
+  { value: "ko", label: "Korean (ko)" },
+  { value: "zh", label: "Chinese (zh)" },
+  { value: "zh-Hans", label: "Chinese Simplified (zh-Hans)" },
+  { value: "zh-Hant", label: "Chinese Traditional (zh-Hant)" },
+  { value: "es", label: "Spanish (es)" },
+  { value: "fr", label: "French (fr)" },
+  { value: "de", label: "German (de)" },
+  { value: "pt", label: "Portuguese (pt)" },
+  { value: "id", label: "Indonesian (id)" },
+  { value: "hi", label: "Hindi (hi)" },
+  { value: "ru", label: "Russian (ru)" },
+];
+
+const getAudioTrackLanguageLabel = (value: string, translate: (key: string) => string): string => {
+  const option = audioTrackLanguageOptions.find((item) => item.value === value);
+  if (option?.labelKey) return translate(option.labelKey);
+  return option?.label ?? value;
+};
+
 const getDefaultCompanionConfig = (): { url: string; secret: string } => {
   if (isElectron) {
     return {
@@ -90,16 +115,75 @@ const useStyles = makeStyles({
     gap: "20px",
   },
   overlaySurface: {
-    width: "min(calc(100vw - 16px), 760px)",
-    maxWidth: "760px",
+    width: "min(calc(100vw - 16px), 960px)",
+    maxWidth: "960px",
+    height: "80vh",
+    maxHeight: "80vh",
+    "@media (max-width: 768px)": {
+      width: "100vw !important",
+      height: "100vh !important",
+      maxWidth: "100vw !important",
+      maxHeight: "100vh !important",
+      margin: "0 !important",
+      borderRadius: "0 !important",
+      border: "none !important",
+    },
   },
   overlayBody: {
     display: "flex",
     flexDirection: "column",
     gap: "16px",
-    maxHeight: "88vh",
-    overflowY: "auto",
+    height: "100%",
+    maxHeight: "100%",
+    overflow: "hidden",
     padding: "20px 22px",
+    boxSizing: "border-box",
+    "@media (max-width: 768px)": {
+      padding: "16px",
+      height: "100% !important",
+      maxHeight: "100% !important",
+    },
+  },
+  settingsLayout: {
+    display: "flex",
+    flexDirection: "row",
+    gap: "24px",
+    flexGrow: 1,
+    minHeight: 0,
+    overflow: "hidden",
+    marginTop: "16px",
+    "@media (max-width: 768px)": {
+      flexDirection: "column",
+      gap: "12px",
+    },
+  },
+  sidebar: {
+    width: "220px",
+    flexShrink: 0,
+    overflowY: "auto",
+    "@media (max-width: 768px)": {
+      width: "100%",
+      overflowX: "auto",
+      overflowY: "hidden",
+      borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+      paddingBottom: "8px",
+    },
+  },
+  contentArea: {
+    flexGrow: 1,
+    minHeight: 0,
+    overflowY: "auto",
+    paddingRight: "8px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  mobileTabListContainer: {
+    overflowX: "auto",
+    scrollbarWidth: "none",
+    "&::-webkit-scrollbar": {
+      display: "none",
+    },
   },
   titleRow: {
     display: "flex",
@@ -111,6 +195,9 @@ const useStyles = makeStyles({
     display: "grid",
     gridTemplateColumns: "1fr",
     gap: "16px",
+  },
+  sectionCard: {
+    flexShrink: 0,
   },
   section: {
     display: "flex",
@@ -155,7 +242,7 @@ const useStyles = makeStyles({
 const SectionCard = ({ title, children }: { title: string; children: React.ReactNode }): JSX.Element => {
   const styles = useStyles();
   return (
-    <Card appearance="outline">
+    <Card appearance="outline" className={styles.sectionCard}>
       <CardHeader
         header={<Text weight="bold" size={400}>{title}</Text>}
       />
@@ -172,8 +259,8 @@ export const SettingsPage = (): JSX.Element => {
   const navigate = useNavigate();
   const { settings, setSetting: applySetting, resetSettings, exportSettings, importSettings } = useSettings();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const overlayBodyRef = useRef<HTMLDivElement | null>(null);
-  const overlayScrollTopRef = useRef(0);
+  const contentAreaRef = useRef<HTMLDivElement | null>(null);
+  const contentScrollTopRef = useRef(0);
   const pageScrollTopRef = useRef(0);
   const pendingScrollRestoreRef = useRef(false);
   const instanceUrlForm = useForm<InstanceUrlFormValues>({
@@ -193,12 +280,23 @@ export const SettingsPage = (): JSX.Element => {
   const noticeDialogId = useId();
   const shouldSkipHistoryBackRef = useRef(false);
 
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+  const [activeTab, setActiveTab] = useState("general");
+
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth < 768);
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
   const openNoticeDialog = (title: string, message: string): void => {
     setNoticeDialog({ open: true, title, message });
   };
 
   const setSetting = <K extends keyof typeof settings>(key: K, value: (typeof settings)[K]): void => {
-    overlayScrollTopRef.current = overlayBodyRef.current?.scrollTop ?? overlayScrollTopRef.current;
+    contentScrollTopRef.current = contentAreaRef.current?.scrollTop ?? contentScrollTopRef.current;
     pageScrollTopRef.current = window.scrollY || document.documentElement.scrollTop || 0;
     pendingScrollRestoreRef.current = true;
     applySetting(key, value);
@@ -207,16 +305,16 @@ export const SettingsPage = (): JSX.Element => {
   useLayoutEffect(() => {
     if (!pendingScrollRestoreRef.current) return;
     pendingScrollRestoreRef.current = false;
-    if (overlayBodyRef.current) {
-      overlayBodyRef.current.scrollTop = overlayScrollTopRef.current;
+    if (contentAreaRef.current) {
+      contentAreaRef.current.scrollTop = contentScrollTopRef.current;
     }
     const y = pageScrollTopRef.current;
     if (window.scrollY !== y) {
       window.scrollTo({ top: y, behavior: "auto" });
     }
     requestAnimationFrame(() => {
-      if (overlayBodyRef.current) {
-        overlayBodyRef.current.scrollTop = overlayScrollTopRef.current;
+      if (contentAreaRef.current) {
+        contentAreaRef.current.scrollTop = contentScrollTopRef.current;
       }
       if (window.scrollY !== y) {
         window.scrollTo({ top: y, behavior: "auto" });
@@ -272,7 +370,6 @@ export const SettingsPage = (): JSX.Element => {
     }
   }, [setSetting, t]);
 
-  const [newChannelId, setNewChannelId] = useState("");
   const [localUsers, setLocalUsers] = useState(getLocalUsers());
   const [newLocalUserName, setNewLocalUserName] = useState("");
   const currentLocalUser = getCurrentLocalUser();
@@ -293,10 +390,10 @@ export const SettingsPage = (): JSX.Element => {
       "GET:feed*",
       "GET:notifications*",
     ].join(",");
-    
+
     const callbackUrl = window.location.origin + window.location.pathname;
     const authUrl = `${settings.instanceUrl}/authorize_token?scopes=${encodeURIComponent(scopes)}&callback_url=${encodeURIComponent(callbackUrl)}`;
-    
+
     window.location.href = authUrl;
   };
 
@@ -318,25 +415,6 @@ export const SettingsPage = (): JSX.Element => {
     const callback = `${window.location.origin}${window.location.pathname}?settings=1&lastfm=1`;
     const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(settings.lastFmApiKey.trim())}&cb=${encodeURIComponent(callback)}`;
     void openExternalUrl(authUrl);
-  };
-
-  const addFavoriteChannel = () => {
-    if (!newChannelId.trim()) return;
-    if (settings.favoriteShortsChannelIds.includes(newChannelId.trim())) {
-      setNewChannelId("");
-      return;
-    }
-    setSetting("favoriteShortsChannelIds", [...settings.favoriteShortsChannelIds, newChannelId.trim()]);
-    setNewChannelId("");
-  };
-
-  const removeFavoriteChannel = (id: string) => {
-    setSetting("favoriteShortsChannelIds", settings.favoriteShortsChannelIds.filter(x => x !== id));
-  };
-
-  const playFavoriteShorts = () => {
-    const ids = settings.favoriteShortsChannelIds.join(",");
-    window.location.href = `/shorts?authorId=${ids}&shuffle=1`;
   };
 
   const refreshLocalUsers = (): void => {
@@ -371,13 +449,7 @@ export const SettingsPage = (): JSX.Element => {
   return (
     <Dialog open onOpenChange={(_, data) => { if (!data.open) closeSettingsOverlay(); }}>
       <DialogSurface className={styles.overlaySurface} data-settings-surface="true">
-        <div
-          className={styles.overlayBody}
-          ref={overlayBodyRef}
-          onScroll={() => {
-            overlayScrollTopRef.current = overlayBodyRef.current?.scrollTop ?? 0;
-          }}
-        >
+        <div className={styles.overlayBody}>
           <div className={styles.titleRow}>
             <Text size={700} weight="bold">{t("settings.title")}</Text>
             <Button
@@ -389,598 +461,510 @@ export const SettingsPage = (): JSX.Element => {
             />
           </div>
 
-          <div className={styles.container}>
-            <div className={styles.grid}>
-              <SectionCard title={t("settings.generalSection")}>
-          <div className={styles.field}>
-            <Label>{t("settings.instanceUrlLabel")}</Label>
-            <div className={styles.inputRow}>
-              <Input
-                style={{ flexGrow: 1 }}
-                value={instanceUrlForm.watch("instanceUrl")}
-                onChange={(_, data) => instanceUrlForm.setValue("instanceUrl", data.value, { shouldValidate: false })}
-              />
-              <Button onClick={applyInstanceUrl} appearance="primary">{t("settings.apply")}</Button>
-            </div>
-            {instanceUrlForm.formState.errors.instanceUrl?.message ? (
-              <Caption1 className={styles.errorText}>{instanceUrlForm.formState.errors.instanceUrl.message}</Caption1>
-            ) : (
-              <Caption1 className={styles.helperText}>{t("settings.defaultInstanceUrl", { url: "https://invidious.tsub4sa.xyz" })}</Caption1>
-            )}
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.apiProxyUrlLabel")}</Label>
-            <Input
-              value={settings.apiProxyUrl}
-              onChange={(_, data) => setSetting("apiProxyUrl", data.value)}
-              placeholder="/api-proxy"
-            />
-            <Caption1 className={styles.helperText}>{t("settings.apiProxyUrlDescription")}</Caption1>
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.region")}</Label>
-            <Dropdown
-              aria-label={t("settings.region")}
-              value={settings.region}
-              selectedOptions={[settings.region]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("region", data.optionValue);
-              }}
-            >
-              {["JP", "US", "KR", "GB", "DE", "FR", "TW", "CA", "AU"].map((region) => (
-                <Option key={region} value={region}>{region}</Option>
-              ))}
-            </Dropdown>
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.displayLanguage")}</Label>
-            <Dropdown
-              aria-label={t("settings.displayLanguage")}
-              value={(() => {
-                const currentLang = settings.language || "ja";
-                return t("settings.languageName", { lng: currentLang }) || currentLang;
-              })()}
-              selectedOptions={[settings.language || "ja"]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) {
-                  setSetting("language", data.optionValue);
-                  void i18n.changeLanguage(data.optionValue);
-                }
-              }}
-            >
-              {(Array.isArray(i18n.options.supportedLngs)
-                ? i18n.options.supportedLngs.filter((lang) => lang !== "cimode")
-                : ["ja", "en"]
-              ).map((lang) => (
-                <Option key={lang} value={lang}>
-                  {t("settings.languageName", { lng: lang }) || lang}
-                </Option>
-              ))}
-            </Dropdown>
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.favoriteChannels")}</Label>
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "8px" }}>
-              {settings.favoriteShortsChannelIds.map((id) => (
-                <div key={id} className={styles.inputRow}>
-                  <Input value={id} readOnly style={{ flexGrow: 1 }} />
-                  <Button 
-                    onClick={() => removeFavoriteChannel(id)}
-                    appearance="subtle"
-                  >
-                    {t("settings.remove")}
-                  </Button>
-                </div>
-              ))}
-            </div>
-            <div className={styles.inputRow}>
-              <Input
-                style={{ flexGrow: 1 }}
-                value={newChannelId}
-                onChange={(e, data) => setNewChannelId(data.value)}
-                placeholder={t("settings.addChannelPlaceholder")}
-              />
-              <Button onClick={addFavoriteChannel} appearance="primary">{t("settings.add")}</Button>
-            </div>
-            <Button 
-              style={{ marginTop: "8px" }}
-              disabled={settings.favoriteShortsChannelIds.length === 0}
-              onClick={playFavoriteShorts}
-              appearance="outline"
-            >
-              {t("settings.favoriteShufflePlay", { count: settings.favoriteShortsChannelIds.length })}
-            </Button>
-            <Caption1 className={styles.helperText}>
-              {t("settings.favoriteShuffleHelp")}
-            </Caption1>
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.startPage")}</Label>
-            <Dropdown
-              aria-label={t("settings.startPage")}
-              value={settings.startPage}
-              selectedOptions={[settings.startPage]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("startPage", data.optionValue as StartPage);
-              }}
-            >
-              <Option value="home">{t("nav.home")}</Option>
-              <Option value="trending">{t("nav.trending")}</Option>
-              <Option value="popular">{t("nav.popular")}</Option>
-              <Option value="subscriptions">{t("nav.subscriptions")}</Option>
-              <Option value="search">{t("nav.search")}</Option>
-            </Dropdown>
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.theme")}</Label>
-            <Dropdown
-              aria-label={t("settings.theme")}
-              value={settings.theme}
-              selectedOptions={[settings.theme]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("theme", data.optionValue as ThemeMode);
-              }}
-            >
-              <Option value="system">{t("settings.themeSystem")}</Option>
-              <Option value="light">{t("settings.themeLight")}</Option>
-              <Option value="dark">{t("settings.themeDark")}</Option>
-              <Option value="amoled">{t("settings.themeAmoled")}</Option>
-            </Dropdown>
-          </div>
-
-          <div className={styles.rowField}>
-            <Label>{t("settings.forceAmoled")}</Label>
-            <Switch checked={settings.amoledEnabled} onChange={(e) => setSetting("amoledEnabled", e.target.checked)} />
-          </div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.cornerRadius")}</Label>
-            <Dropdown
-              aria-label={t("settings.cornerRadius")}
-              value={settings.cornerRadius}
-              selectedOptions={[settings.cornerRadius]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("cornerRadius", data.optionValue as CornerRadius);
-              }}
-            >
-              <Option value="none">{t("settings.none")}</Option>
-              <Option value="small">{t("settings.small")}</Option>
-              <Option value="medium">{t("settings.medium")}</Option>
-              <Option value="large">{t("settings.large")}</Option>
-              <Option value="xlarge">{t("settings.extraLarge")}</Option>
-            </Dropdown>
-          </div>
-        </SectionCard>
-
-              <SectionCard title={t("settings.historySearchSection")}>
-          <div className={styles.rowField}>
-            <Label>{t("settings.saveWatchHistory")}</Label>
-            <Switch checked={settings.saveWatchHistory} onChange={(e) => setSetting("saveWatchHistory", e.target.checked)} />
-          </div>
-          <div className={styles.rowField}>
-            <Label>{t("settings.showSearchSuggestions")}</Label>
-            <Switch checked={settings.showSearchSuggestions} onChange={(e) => setSetting("showSearchSuggestions", e.target.checked)} />
-          </div>
-
-          {isClearHistoryConfirmOpen ? (
-            <div className={styles.alert}>
-              <Text weight="semibold">{t("settings.confirmClearWatchHistory")}</Text>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <Button size="small" appearance="primary" onClick={() => { clearWatchHistory(); setIsClearHistoryConfirmOpen(false); }}>{t("settings.delete")}</Button>
-                <Button size="small" appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(false)}>{t("common.cancel")}</Button>
-              </div>
-            </div>
-          ) : (
-            <Button appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(true)}>{t("settings.clearWatchHistory")}</Button>
-          )}
-
-          {isClearSearchConfirmOpen ? (
-            <div className={styles.alert}>
-              <Text weight="semibold">{t("settings.confirmClearSearchHistory")}</Text>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <Button size="small" appearance="primary" onClick={() => { clearRecentSearches(); setIsClearSearchConfirmOpen(false); }}>{t("settings.delete")}</Button>
-                <Button size="small" appearance="outline" onClick={() => setIsClearSearchConfirmOpen(false)}>{t("common.cancel")}</Button>
-              </div>
-            </div>
-          ) : (
-            <Button appearance="outline" onClick={() => setIsClearSearchConfirmOpen(true)}>{t("settings.clearSearchHistory")}</Button>
-          )}
-        </SectionCard>
-
-              <SectionCard title={t("settings.playbackSection")}>
-          <div className={styles.rowField}><Label>{t("settings.autoplay")}</Label><Switch checked={settings.autoplay} onChange={(e) => setSetting("autoplay", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.loopVideo")}</Label><Switch checked={settings.loopVideo} onChange={(e) => setSetting("loopVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.useProxyVideo")}</Label><Switch checked={settings.useProxyVideo} onChange={(e) => setSetting("useProxyVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.rememberPlaybackPosition")}</Label><Switch checked={settings.rememberPlaybackPosition} onChange={(e) => setSetting("rememberPlaybackPosition", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.miniPlayer")}</Label><Switch checked={settings.miniPlayer} onChange={(e) => setSetting("miniPlayer", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.theaterMode")}</Label><Switch checked={settings.theaterMode} onChange={(e) => setSetting("theaterMode", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.autoplayNextVideo")}</Label><Switch checked={settings.autoplayNextVideo} onChange={(e) => setSetting("autoplayNextVideo", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.showCaptionsByDefault")}</Label><Switch checked={settings.showCaptionsByDefault} onChange={(e) => setSetting("showCaptionsByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.preferOriginalTranslation")}</Label><Switch checked={settings.preferOriginalTranslation} onChange={(e) => setSetting("preferOriginalTranslation", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.hapticFeedback")}</Label><Switch checked={settings.hapticFeedback} onChange={(e) => setSetting("hapticFeedback", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.privacyScreenEnabled")}</Label><Switch checked={settings.privacyScreenEnabled} onChange={(e) => setSetting("privacyScreenEnabled", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.cinematicLighting")}</Label><Switch checked={settings.cinematicLighting} onChange={(e) => setSetting("cinematicLighting", e.target.checked)} /></div>
-          {isCapacitor ? (
-            <>
-              <div className={styles.rowField}><Label>{t("settings.pictureInPictureEnabled")}</Label><Switch checked={settings.pictureInPictureEnabled} onChange={(e) => setSetting("pictureInPictureEnabled", e.target.checked)} /></div>
-              <div className={styles.rowField}><Label>{t("settings.autoEnterPipOnBackground")}</Label><Switch checked={settings.autoEnterPipOnBackground} disabled={!settings.pictureInPictureEnabled} onChange={(e) => setSetting("autoEnterPipOnBackground", e.target.checked)} /></div>
-              <div className={styles.rowField}><Label>{t("settings.backgroundPlaybackEnabled")}</Label><Switch checked={settings.backgroundPlaybackEnabled} onChange={(e) => setSetting("backgroundPlaybackEnabled", e.target.checked)} /></div>
-              <div className={styles.rowField}><Label>{t("settings.androidMediaNotificationEnabled")}</Label><Switch checked={settings.androidMediaNotificationEnabled} onChange={(e) => setSetting("androidMediaNotificationEnabled", e.target.checked)} /></div>
-            </>
-          ) : null}
-
-          <div className={styles.field}>
-            <Label>{t("settings.quality")}</Label>
-            <Dropdown
-              aria-label={t("settings.quality")}
-              value={settings.quality}
-              selectedOptions={[settings.quality]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("quality", data.optionValue as QualityMode);
-              }}
-            >
-              <Option value="auto">Auto</Option>
-              <Option value="1080p">1080p</Option>
-              <Option value="720p">720p</Option>
-              <Option value="480p">480p</Option>
-              <Option value="360p">360p</Option>
-            </Dropdown>
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.defaultAudioTrackLanguage")}</Label>
-            <Dropdown
-              aria-label={t("settings.defaultAudioTrackLanguage")}
-              value={settings.audioTrackLanguage}
-              selectedOptions={[settings.audioTrackLanguage]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("audioTrackLanguage", data.optionValue);
-              }}
-            >
-              <Option value="auto">{t("settings.audioTrackLanguageAuto")}</Option>
-              <Option value="ja">Japanese (ja)</Option>
-              <Option value="en">English (en)</Option>
-            </Dropdown>
-          </div>
-
-          <div className={styles.rowField}><Label>{t("settings.audioOnly")}</Label><Switch checked={settings.audioOnly} onChange={(e) => setSetting("audioOnly", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.dataSaver")}</Label><Switch checked={settings.dataSaver} onChange={(e) => setSetting("dataSaver", e.target.checked)} /></div>
-        </SectionCard>
-
-              <SectionCard title={t("settings.watchSection")}>
-          <div className={styles.rowField}><Label>{t("settings.expandDescriptionByDefault")}</Label><Switch checked={settings.expandDescriptionByDefault} onChange={(e) => setSetting("expandDescriptionByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.hideDescriptionSection")}</Label><Switch checked={settings.hideDescriptionSection} onChange={(e) => setSetting("hideDescriptionSection", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.expandChaptersByDefault")}</Label><Switch checked={settings.expandChaptersByDefault} onChange={(e) => setSetting("expandChaptersByDefault", e.target.checked)} /></div>
-          <div className={styles.rowField}><Label>{t("settings.expandCommentsByDefault")}</Label><Switch checked={settings.expandCommentsByDefault} onChange={(e) => setSetting("expandCommentsByDefault", e.target.checked)} /></div>
-        </SectionCard>
-
-              <SectionCard title={t("settings.appearanceSection")}>
-          <div className={styles.field}>
-            <Label>{t("settings.accentColor")}</Label>
-            <Dropdown
-              aria-label={t("settings.accentColor")}
-              value={settings.accentColor}
-              selectedOptions={[settings.accentColor]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("accentColor", data.optionValue as AccentColor);
-              }}
-            >
-              <Option value="blue">{t("settings.colorBlue")}</Option>
-              <Option value="red">{t("settings.colorRed")}</Option>
-              <Option value="purple">{t("settings.colorPurple")}</Option>
-              <Option value="green">{t("settings.colorGreen")}</Option>
-              <Option value="orange">{t("settings.colorOrange")}</Option>
-              <Option value="pink">{t("settings.colorPink")}</Option>
-              <Option value="custom">{t("settings.custom")}</Option>
-            </Dropdown>
-          </div>
-          {settings.accentColor === "custom" ? (
-            <div className={styles.field}>
-              <Label>{t("settings.customColor")}</Label>
-              <Input value={settings.customAccentColor} onChange={(e, data) => setSetting("customAccentColor", data.value)} />
-            </div>
-          ) : null}
-
-          <div className={styles.rowField}><Label>{t("settings.showDesktopSidebar")}</Label><Switch checked={settings.showDesktopSidebar} onChange={(e) => setSetting("showDesktopSidebar", e.target.checked)} /></div>
-
-          <div className={styles.field}>
-            <Label>{t("settings.animationStrength")}</Label>
-            <Dropdown
-              aria-label={t("settings.animationStrength")}
-              value={settings.animationStrength}
-              selectedOptions={[settings.animationStrength]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("animationStrength", data.optionValue as AnimationStrength);
-              }}
-            >
-              <Option value="off">{t("settings.off")}</Option>
-              <Option value="reduced">{t("settings.reduced")}</Option>
-              <Option value="normal">{t("settings.normal")}</Option>
-            </Dropdown>
-          </div>
-          <div className={styles.rowField}>
-            <Label>{t("settings.useLenis")}</Label>
-            <Switch checked={settings.useLenis} onChange={(e) => setSetting("useLenis", e.target.checked)} />
-          </div>
-          <div className={styles.rowField}>
-            <Label>{t("settings.hideShorts") || "Shortsを非表示にする"}</Label>
-            <Switch checked={settings.hideShorts} onChange={(e) => setSetting("hideShorts", e.target.checked)} />
-          </div>
-          <div className={styles.rowField}>
-            <Label>{t("settings.hideMobileNavLabels") || "モバイルナビのテキストを非表示"}</Label>
-            <Switch checked={settings.hideMobileNavLabels} onChange={(e) => setSetting("hideMobileNavLabels", e.target.checked)} />
-          </div>
-        </SectionCard>
-
-              <SectionCard title={t("settings.accountSection")}>
-          <Text size={200} className={styles.helperText}>
-            {t("settings.accountDescription")}
-          </Text>
-          <div className={styles.field}>
-            <Label>{t("settings.localUser")}</Label>
-            <Dropdown
-              aria-label={t("settings.localUser")}
-              value={currentLocalUser.name}
-              selectedOptions={[currentLocalUser.id]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) switchUser(data.optionValue);
-              }}
-            >
-              {localUsers.map((user) => (
-                <Option key={user.id} value={user.id} text={user.name}>{user.name}</Option>
-              ))}
-            </Dropdown>
-            <div className={styles.inputRow}>
-              <Input
-                value={newLocalUserName}
-                onChange={(_, data) => setNewLocalUserName(data.value)}
-                placeholder={t("settings.newUserNamePlaceholder")}
-                style={{ flexGrow: 1 }}
-              />
-              <Button appearance="outline" onClick={createUser}>{t("settings.add")}</Button>
-            </div>
-            <Caption1 className={styles.helperText}>
-              {t("settings.currentUser", { name: currentLocalUser.name })}
-            </Caption1>
-          </div>
-          {settings.token ? (
-            <div className={styles.alert} style={{ backgroundColor: tokens.colorStatusSuccessBackground1, borderColor: tokens.colorStatusSuccessBorder1 }}>
-              <Text weight="semibold">{t("settings.loggedIn")}</Text>
-              <Caption1>{t("settings.tokenConfigured")}</Caption1>
-              <Button appearance="outline" onClick={() => setSetting("token", "")}>{t("settings.logout")}</Button>
-            </div>
-          ) : (
-            <Button appearance="primary" onClick={handleInvidiousLogin}>{t("settings.loginWithInvidious")}</Button>
-          )}
-        </SectionCard>
-
-              <SectionCard title={t("settings.companionSection")}>
-          <Text size={200} className={styles.helperText}>
-            {t("settings.companionDescription")}
-          </Text>
-          <div className={styles.field}>
-            <Label>{t("settings.companionMode")}</Label>
-            <Dropdown
-              aria-label={t("settings.companionMode")}
-              value={settings.companionMode === "default" ? t("settings.companionDefault") : t("settings.companionCustom")}
-              selectedOptions={[settings.companionMode]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (!data.optionValue) return;
-                const mode = data.optionValue as CompanionMode;
-                setSetting("companionMode", mode);
-                if (mode === "default") {
-                  const defaults = getDefaultCompanionConfig();
-                  setSetting("companionUrl", defaults.url);
-                  setSetting("companionSecret", defaults.secret);
-                }
-              }}
-            >
-              <Option value="default">{t("settings.companionDefault")}</Option>
-              <Option value="custom">{t("settings.companionCustom")}</Option>
-            </Dropdown>
-          </div>
-          
-          <div className={styles.field}>
-            <Label>{t("settings.companionUrl")}</Label>
-            <Input
-              value={settings.companionUrl}
-              onChange={(e, data) => setSetting("companionUrl", data.value)}
-              disabled={settings.companionMode !== "custom"}
-              placeholder="https://companion.example.com"
-            />
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.companionSecret")}</Label>
-            <Input
-              type="password"
-              value={settings.companionSecret}
-              onChange={(e, data) => setSetting("companionSecret", data.value)}
-              disabled={settings.companionMode !== "custom"}
-              placeholder="YOURSECRETKEY"
-            />
-          </div>
-        </SectionCard>
-
-              <SectionCard title={t("settings.lastFmSection")}>
-          <Text size={200} className={styles.helperText}>
-            {t("settings.lastFmDescription")}
-          </Text>
-          <div className={styles.rowField}>
-            <Label>{t("settings.lastFmEnabled")}</Label>
-            <Switch checked={settings.lastFmEnabled} onChange={(e) => setSetting("lastFmEnabled", e.target.checked)} />
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.lastFmApiKey")}</Label>
-            <div className={styles.inputRow}>
-              <Input
-                value={settings.lastFmApiKey}
-                onChange={(_, data) => setSetting("lastFmApiKey", data.value)}
-                placeholder="LASTFM_API_KEY"
-                style={{ flexGrow: 1 }}
-              />
-              <Button
-                appearance="outline"
-                disabled={!defaultLastFmApiKey}
-                onClick={() => setSetting("lastFmApiKey", defaultLastFmApiKey)}
-              >
-                {t("settings.lastFmUseDefaultApiKey")}
-              </Button>
-            </div>
-            <Caption1 className={styles.helperText}>
-              {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyMissing")}
-            </Caption1>
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.lastFmApiSecret")}</Label>
-            <div className={styles.inputRow}>
-              <Input
-                type="password"
-                value={settings.lastFmApiSecret}
-                onChange={(_, data) => setSetting("lastFmApiSecret", data.value)}
-                placeholder="LASTFM_API_SECRET"
-                style={{ flexGrow: 1 }}
-              />
-              <Button
-                appearance="outline"
-                disabled={!defaultLastFmApiSecret}
-                onClick={() => setSetting("lastFmApiSecret", defaultLastFmApiSecret)}
-              >
-                {t("settings.lastFmUseDefaultApiSecret")}
-              </Button>
-            </div>
-            <Caption1 className={styles.helperText}>
-              {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretMissing")}
-            </Caption1>
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.lastFmSessionKey")}</Label>
-            <Input
-              type="password"
-              value={settings.lastFmSessionKey}
-              onChange={(_, data) => setSetting("lastFmSessionKey", data.value)}
-              placeholder="LASTFM_SESSION_KEY"
-            />
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.lastFmUsername")}</Label>
-            <Input
-              value={settings.lastFmUsername}
-              onChange={(_, data) => setSetting("lastFmUsername", data.value)}
-              placeholder="your_lastfm_name"
-            />
-          </div>
-          <div className={styles.rowField}>
-            <Label>{t("settings.lastFmScrobbleEnabled")}</Label>
-            <Switch checked={settings.lastFmScrobbleEnabled} onChange={(e) => setSetting("lastFmScrobbleEnabled", e.target.checked)} />
-          </div>
-          <div className={styles.field}>
-            <Label>{t("settings.lastFmTitleFormatMode")}</Label>
-            <Dropdown
-              aria-label={t("settings.lastFmTitleFormatMode")}
-              value={settings.lastFmTitleFormatMode}
-              selectedOptions={[settings.lastFmTitleFormatMode]}
-              inlinePopup
-              onOptionSelect={(_, data) => {
-                if (data.optionValue) setSetting("lastFmTitleFormatMode", data.optionValue as LastFmTitleFormatMode);
-              }}
-            >
-              <Option value="raw">{t("settings.lastFmTitleFormatRaw")}</Option>
-              <Option value="clean">{t("settings.lastFmTitleFormatClean")}</Option>
-            </Dropdown>
-          </div>
-          {settings.lastFmTitleFormatMode === "clean" ? (
-            <>
-              <div className={styles.rowField}>
-                <Label>{t("settings.lastFmTrimArtistPrefix")}</Label>
-                <Switch checked={settings.lastFmTrimArtistPrefix} onChange={(e) => setSetting("lastFmTrimArtistPrefix", e.target.checked)} />
-              </div>
-              <div className={styles.rowField}>
-                <Label>{t("settings.lastFmTrimFeaturingSuffix")}</Label>
-                <Switch checked={settings.lastFmTrimFeaturingSuffix} onChange={(e) => setSetting("lastFmTrimFeaturingSuffix", e.target.checked)} />
-              </div>
-              <div className={styles.rowField}>
-                <Label>{t("settings.lastFmTrimBracketTags")}</Label>
-                <Switch checked={settings.lastFmTrimBracketTags} onChange={(e) => setSetting("lastFmTrimBracketTags", e.target.checked)} />
-              </div>
-              <div className={styles.rowField}>
-                <Label>{t("settings.lastFmTrimDashTags")}</Label>
-                <Switch checked={settings.lastFmTrimDashTags} onChange={(e) => setSetting("lastFmTrimDashTags", e.target.checked)} />
-              </div>
-            </>
-          ) : null}
-          <Button appearance="outline" onClick={openLastFmAuth}>
-            {t("settings.lastFmOpenAuth")}
-          </Button>
-        </SectionCard>
-
-              <SectionCard title={t("settings.advancedSection")}>
-
-          <div className={styles.field}>
-            <Label>{t("settings.bearerToken")}</Label>
-            <Input value={settings.token} onChange={(e, data) => setSetting("token", data.value)} placeholder={t("settings.optional")} />
-            <Caption1 className={styles.helperText}>{t("settings.oauthRecommended")}</Caption1>
-          </div>
-
-          <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
-            <Button onClick={handleExport} appearance="outline">{t("settings.exportSettings")}</Button>
-            <Button onClick={() => fileInputRef.current?.click()} appearance="outline">{t("settings.importSettings")}</Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="application/json"
-              style={{ display: "none" }}
-              onChange={async (event) => {
-                const file = event.target.files?.[0];
-                if (!file) return;
-                const text = await file.text();
-                const result = importSettings(text);
-                if (result.ok) {
-                  openNoticeDialog(t("settings.importSuccessTitle"), t("settings.importSuccessMessage"));
-                } else {
-                  openNoticeDialog(t("settings.importFailedTitle"), result.error || t("settings.importFailedMessage"));
-                }
-              }}
-            />
-          </div>
-
-          {isResetConfirmOpen ? (
-            <div className={styles.alert}>
-              <Text weight="semibold">{t("settings.confirmReset")}</Text>
-              <div style={{ display: "flex", gap: "8px" }}>
-                <Button
-                  size="small"
-                  appearance="primary"
-                  onClick={() => {
-                    resetSettings();
-                    instanceUrlForm.reset({ instanceUrl: "https://invidious.tsub4sa.xyz" });
-                    setIsResetConfirmOpen(false);
-                  }}
+          <div className={styles.settingsLayout}>
+            <div className={styles.sidebar}>
+              <div className={isMobile ? styles.mobileTabListContainer : undefined}>
+                <TabList
+                  vertical={!isMobile}
+                  selectedValue={activeTab}
+                  onTabSelect={(_, data) => setActiveTab(data.value as string)}
                 >
-                  {t("settings.reset")}
-                </Button>
-                <Button size="small" appearance="outline" onClick={() => setIsResetConfirmOpen(false)}>{t("common.cancel")}</Button>
+                  <Tab value="general">{t("settings.generalSection")}</Tab>
+                  <Tab value="history">{t("settings.historySearchSection")}</Tab>
+                  <Tab value="playback">{t("settings.playbackSection")}</Tab>
+                  <Tab value="watch">{t("settings.watchSection")}</Tab>
+                  <Tab value="appearance">{t("settings.appearanceSection")}</Tab>
+                  <Tab value="account">{t("settings.accountSection")}</Tab>
+                  <Tab value="companion">{t("settings.companionSection")}</Tab>
+                  <Tab value="lastfm">{t("settings.lastFmSection")}</Tab>
+                  <Tab value="advanced">{t("settings.advancedSection")}</Tab>
+                </TabList>
               </div>
             </div>
-          ) : (
-            <Button appearance="outline" onClick={() => setIsResetConfirmOpen(true)}>{t("settings.resetSettings")}</Button>
-          )}
-              </SectionCard>
+
+            <div
+              className={styles.contentArea}
+              ref={contentAreaRef}
+              onScroll={() => {
+                contentScrollTopRef.current = contentAreaRef.current?.scrollTop ?? 0;
+              }}
+            >
+              {activeTab === "general" && (
+                <SectionCard title={t("settings.generalSection")}>
+                  <div className={styles.field}>
+                    <Label>{t("settings.instanceUrlLabel")}</Label>
+                    <div className={styles.inputRow}>
+                      <Input
+                        style={{ flexGrow: 1 }}
+                        value={instanceUrlForm.watch("instanceUrl")}
+                        onChange={(_, data) => instanceUrlForm.setValue("instanceUrl", data.value, { shouldValidate: false })}
+                      />
+                      <Button onClick={applyInstanceUrl} appearance="primary">{t("settings.apply")}</Button>
+                    </div>
+                    {instanceUrlForm.formState.errors.instanceUrl?.message ? (
+                      <Caption1 className={styles.errorText}>{instanceUrlForm.formState.errors.instanceUrl.message}</Caption1>
+                    ) : (
+                      <Caption1 className={styles.helperText}>{t("settings.defaultInstanceUrl", { url: "https://invidious.tsub4sa.xyz" })}</Caption1>
+                    )}
+                  </div>
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.apiProxyUrlLabel")}</Label>
+                    <Input
+                      value={settings.apiProxyUrl}
+                      onChange={(_, data) => setSetting("apiProxyUrl", data.value)}
+                      placeholder="/api-proxy"
+                    />
+                    <Caption1 className={styles.helperText}>{t("settings.apiProxyUrlDescription")}</Caption1>
+                  </div>
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.region")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.region")}
+                      value={settings.region}
+                      selectedOptions={[settings.region]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("region", data.optionValue);
+                      }}
+                    >
+                      {["JP", "US", "KR", "GB", "DE", "FR", "TW", "CA", "AU"].map((region) => (
+                        <Option key={region} value={region}>{region}</Option>
+                      ))}
+                    </Dropdown>
+                  </div>
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.displayLanguage")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.displayLanguage")}
+                      value={(() => {
+                        const currentLang = settings.language || "ja";
+                        return t("settings.languageName", { lng: currentLang }) || currentLang;
+                      })()}
+                      selectedOptions={[settings.language || "ja"]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) {
+                          setSetting("language", data.optionValue);
+                          void i18n.changeLanguage(data.optionValue);
+                        }
+                      }}
+                    >
+                      {(Array.isArray(i18n.options.supportedLngs)
+                        ? i18n.options.supportedLngs.filter((lang) => lang !== "cimode")
+                        : ["ja", "en"]
+                      ).map((lang) => (
+                        <Option key={lang} value={lang}>
+                          {t("settings.languageName", { lng: lang }) || lang}
+                        </Option>
+                      ))}
+                    </Dropdown>
+                  </div>
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.startPage")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.startPage")}
+                      value={settings.startPage}
+                      selectedOptions={[settings.startPage]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("startPage", data.optionValue as StartPage);
+                      }}
+                    >
+                      <Option value="home">{t("nav.home")}</Option>
+                      <Option value="trending">{t("nav.trending")}</Option>
+                      <Option value="popular">{t("nav.popular")}</Option>
+                      <Option value="subscriptions">{t("nav.subscriptions")}</Option>
+                      <Option value="search">{t("nav.search")}</Option>
+                    </Dropdown>
+                  </div>
+
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.hideShorts") || "Shortsを非表示にする"}</Label>
+                    <Switch checked={settings.hideShorts} onChange={(e) => setSetting("hideShorts", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.hideMobileNavLabels") || "モバイルナビのテキストを非表示"}</Label>
+                    <Switch checked={settings.hideMobileNavLabels} onChange={(e) => setSetting("hideMobileNavLabels", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.hapticFeedback")}</Label>
+                    <Switch checked={settings.hapticFeedback} onChange={(e) => setSetting("hapticFeedback", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.privacyScreenEnabled")}</Label>
+                    <Switch checked={settings.privacyScreenEnabled} onChange={(e) => setSetting("privacyScreenEnabled", e.target.checked)} />
+                  </div>
+                </SectionCard>
+              )}
+
+              {activeTab === "history" && (
+                <SectionCard title={t("settings.historySearchSection")}>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.saveWatchHistory")}</Label>
+                    <Switch checked={settings.saveWatchHistory} onChange={(e) => setSetting("saveWatchHistory", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.showSearchSuggestions")}</Label>
+                    <Switch checked={settings.showSearchSuggestions} onChange={(e) => setSetting("showSearchSuggestions", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.warnBeforeOpeningExternalLinks")}</Label>
+                    <Switch checked={settings.warnBeforeOpeningExternalLinks} onChange={(e) => setSetting("warnBeforeOpeningExternalLinks", e.target.checked)} />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.openExternalLinksInNewTab")}</Label>
+                    <Switch checked={settings.openExternalLinksInNewTab} onChange={(e) => setSetting("openExternalLinksInNewTab", e.target.checked)} />
+                  </div>
+
+                  {isClearHistoryConfirmOpen ? (
+                    <div className={styles.alert}>
+                      <Text weight="semibold">{t("settings.confirmClearWatchHistory")}</Text>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <Button size="small" appearance="primary" onClick={() => { clearWatchHistory(); setIsClearHistoryConfirmOpen(false); }}>{t("settings.delete")}</Button>
+                        <Button size="small" appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(false)}>{t("common.cancel")}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button appearance="outline" onClick={() => setIsClearHistoryConfirmOpen(true)}>{t("settings.clearWatchHistory")}</Button>
+                  )}
+
+                  {isClearSearchConfirmOpen ? (
+                    <div className={styles.alert}>
+                      <Text weight="semibold">{t("settings.confirmClearSearchHistory")}</Text>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <Button size="small" appearance="primary" onClick={() => { clearRecentSearches(); setIsClearSearchConfirmOpen(false); }}>{t("settings.delete")}</Button>
+                        <Button size="small" appearance="outline" onClick={() => setIsClearSearchConfirmOpen(false)}>{t("common.cancel")}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button appearance="outline" onClick={() => setIsClearSearchConfirmOpen(true)}>{t("settings.clearSearchHistory")}</Button>
+                  )}
+                </SectionCard>
+              )}
+
+              {activeTab === "playback" && (
+                <SectionCard title={t("settings.playbackSection")}>
+                  <div className={styles.rowField}><Label>{t("settings.autoplay")}</Label><Switch checked={settings.autoplay} onChange={(e) => setSetting("autoplay", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.loopVideo")}</Label><Switch checked={settings.loopVideo} onChange={(e) => setSetting("loopVideo", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.useProxyVideo")}</Label><Switch checked={settings.useProxyVideo} onChange={(e) => setSetting("useProxyVideo", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.rememberPlaybackPosition")}</Label><Switch checked={settings.rememberPlaybackPosition} onChange={(e) => setSetting("rememberPlaybackPosition", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.miniPlayer")}</Label><Switch checked={settings.miniPlayer} onChange={(e) => setSetting("miniPlayer", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>プレーヤー閉じるボタン</Label><Switch checked={settings.playerCloseButton} onChange={(e) => setSetting("playerCloseButton", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.theaterMode")}</Label><Switch checked={settings.theaterMode} onChange={(e) => setSetting("theaterMode", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.autoplayNextVideo")}</Label><Switch checked={settings.autoplayNextVideo} onChange={(e) => setSetting("autoplayNextVideo", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.showCaptionsByDefault")}</Label><Switch checked={settings.showCaptionsByDefault} onChange={(e) => setSetting("showCaptionsByDefault", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.preferOriginalTranslation")}</Label><Switch checked={settings.preferOriginalTranslation} onChange={(e) => setSetting("preferOriginalTranslation", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.cinematicLighting")}</Label><Switch checked={settings.cinematicLighting} onChange={(e) => setSetting("cinematicLighting", e.target.checked)} /></div>
+                  {isCapacitor ? (
+                    <>
+                      <div className={styles.rowField}><Label>{t("settings.pictureInPictureEnabled")}</Label><Switch checked={settings.pictureInPictureEnabled} onChange={(e) => setSetting("pictureInPictureEnabled", e.target.checked)} /></div>
+                      <div className={styles.rowField}><Label>{t("settings.autoEnterPipOnBackground")}</Label><Switch checked={settings.autoEnterPipOnBackground} disabled={!settings.pictureInPictureEnabled} onChange={(e) => setSetting("autoEnterPipOnBackground", e.target.checked)} /></div>
+                      <div className={styles.rowField}><Label>{t("settings.backgroundPlaybackEnabled")}</Label><Switch checked={settings.backgroundPlaybackEnabled} onChange={(e) => setSetting("backgroundPlaybackEnabled", e.target.checked)} /></div>
+                      <div className={styles.rowField}><Label>{t("settings.androidMediaNotificationEnabled")}</Label><Switch checked={settings.androidMediaNotificationEnabled} onChange={(e) => setSetting("androidMediaNotificationEnabled", e.target.checked)} /></div>
+                    </>
+                  ) : null}
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.quality")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.quality")}
+                      value={settings.quality}
+                      selectedOptions={[settings.quality]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("quality", data.optionValue as QualityMode);
+                      }}
+                    >
+                      <Option value="auto">Auto</Option>
+                      <Option value="1080p">1080p</Option>
+                      <Option value="720p">720p</Option>
+                      <Option value="480p">480p</Option>
+                      <Option value="360p">360p</Option>
+                    </Dropdown>
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.defaultAudioTrackLanguage")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.defaultAudioTrackLanguage")}
+                      value={getAudioTrackLanguageLabel(settings.audioTrackLanguage, t)}
+                      selectedOptions={[settings.audioTrackLanguage]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("audioTrackLanguage", data.optionValue);
+                      }}
+                    >
+                      {audioTrackLanguageOptions.map((option) => (
+                        <Option key={option.value} value={option.value}>
+                          {option.labelKey ? t(option.labelKey) : option.label}
+                        </Option>
+                      ))}
+                    </Dropdown>
+                    <Input
+                      value={settings.audioTrackLanguage}
+                      onChange={(_, data) => setSetting("audioTrackLanguage", data.value.trim() || "auto")}
+                      placeholder="auto, ja, en, en-US"
+                    />
+                    <Caption1 className={styles.helperText}>
+                      {t("settings.defaultAudioTrackLanguageDescription")}
+                    </Caption1>
+                  </div>
+                <SectionCard title={t("settings.accountSection")}>
+                  <Text size={200} className={styles.helperText}>
+                    {t("settings.accountDescription")}
+                  </Text>
+                  <div className={styles.field}>
+                    <Label>{t("settings.localUser")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.localUser")}
+                      value={currentLocalUser.name}
+                      selectedOptions={[currentLocalUser.id]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) switchUser(data.optionValue);
+                      }}
+                    >
+                      {localUsers.map((user) => (
+                        <Option key={user.id} value={user.id} text={user.name}>{user.name}</Option>
+                      ))}
+                    </Dropdown>
+                    <div className={styles.inputRow}>
+                      <Input
+                        value={newLocalUserName}
+                        onChange={(_, data) => setNewLocalUserName(data.value)}
+                        placeholder={t("settings.newUserNamePlaceholder")}
+                        style={{ flexGrow: 1 }}
+                      />
+                      <Button appearance="outline" onClick={createUser}>{t("settings.add")}</Button>
+                    </div>
+                    <Caption1 className={styles.helperText}>
+                      {t("settings.currentUser", { name: currentLocalUser.name })}
+                    </Caption1>
+                  </div>
+                  {settings.token ? (
+                    <div className={styles.alert} style={{ backgroundColor: tokens.colorStatusSuccessBackground1, borderColor: tokens.colorStatusSuccessBorder1 }}>
+                      <Text weight="semibold">{t("settings.loggedIn")}</Text>
+                      <Caption1>{t("settings.tokenConfigured")}</Caption1>
+                      <Button appearance="outline" onClick={() => setSetting("token", "")}>{t("settings.logout")}</Button>
+                    </div>
+                  ) : (
+                    <Button appearance="primary" onClick={handleInvidiousLogin}>{t("settings.loginWithInvidious")}</Button>
+                  )}
+                </SectionCard>
+              )}
+
+              {activeTab === "companion" && (
+                <SectionCard title={t("settings.companionSection")}>
+                  <Text size={200} className={styles.helperText}>
+                    {t("settings.companionDescription")}
+                  </Text>
+                  <div className={styles.field}>
+                    <Label>{t("settings.companionMode")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.companionMode")}
+                      value={settings.companionMode === "default" ? t("settings.companionDefault") : t("settings.companionCustom")}
+                      selectedOptions={[settings.companionMode]}
+                      onOptionSelect={(_, data) => {
+                        if (!data.optionValue) return;
+                        const mode = data.optionValue as CompanionMode;
+                        setSetting("companionMode", mode);
+                        if (mode === "default") {
+                          const defaults = getDefaultCompanionConfig();
+                          setSetting("companionUrl", defaults.url);
+                          setSetting("companionSecret", defaults.secret);
+                        }
+                      }}
+                    >
+                      <Option value="default">{t("settings.companionDefault")}</Option>
+                      <Option value="custom">{t("settings.companionCustom")}</Option>
+                    </Dropdown>
+                  </div>
+
+                  <div className={styles.field}>
+                    <Label>{t("settings.companionUrl")}</Label>
+                    <Input
+                      value={settings.companionUrl}
+                      onChange={(e, data) => setSetting("companionUrl", data.value)}
+                      disabled={settings.companionMode !== "custom"}
+                      placeholder="https://companion.example.com"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.companionSecret")}</Label>
+                    <Input
+                      type="password"
+                      value={settings.companionSecret}
+                      onChange={(e, data) => setSetting("companionSecret", data.value)}
+                      disabled={settings.companionMode !== "custom"}
+                      placeholder="YOURSECRETKEY"
+                    />
+                  </div>
+                </SectionCard>
+              )}
+
+              {activeTab === "lastfm" && (
+                <SectionCard title={t("settings.lastFmSection")}>
+                  <Text size={200} className={styles.helperText}>
+                    {t("settings.lastFmDescription")}
+                  </Text>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.lastFmEnabled")}</Label>
+                    <Switch checked={settings.lastFmEnabled} onChange={(e) => setSetting("lastFmEnabled", e.target.checked)} />
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.lastFmApiKey")}</Label>
+                    <div className={styles.inputRow}>
+                      <Input
+                        value={settings.lastFmApiKey}
+                        onChange={(_, data) => setSetting("lastFmApiKey", data.value)}
+                        placeholder="LASTFM_API_KEY"
+                        style={{ flexGrow: 1 }}
+                      />
+                      <Button
+                        appearance="outline"
+                        disabled={!defaultLastFmApiKey}
+                        onClick={() => setSetting("lastFmApiKey", defaultLastFmApiKey)}
+                      >
+                        {t("settings.lastFmUseDefaultApiKey")}
+                      </Button>
+                    </div>
+                    <Caption1 className={styles.helperText}>
+                      {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyMissing")}
+                    </Caption1>
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.lastFmApiSecret")}</Label>
+                    <div className={styles.inputRow}>
+                      <Input
+                        type="password"
+                        value={settings.lastFmApiSecret}
+                        onChange={(_, data) => setSetting("lastFmApiSecret", data.value)}
+                        placeholder="LASTFM_API_SECRET"
+                        style={{ flexGrow: 1 }}
+                      />
+                      <Button
+                        appearance="outline"
+                        disabled={!defaultLastFmApiSecret}
+                        onClick={() => setSetting("lastFmApiSecret", defaultLastFmApiSecret)}
+                      >
+                        {t("settings.lastFmUseDefaultApiSecret")}
+                      </Button>
+                    </div>
+                    <Caption1 className={styles.helperText}>
+                      {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretMissing")}
+                    </Caption1>
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.lastFmSessionKey")}</Label>
+                    <Input
+                      type="password"
+                      value={settings.lastFmSessionKey}
+                      onChange={(_, data) => setSetting("lastFmSessionKey", data.value)}
+                      placeholder="LASTFM_SESSION_KEY"
+                    />
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.lastFmUsername")}</Label>
+                    <Input
+                      value={settings.lastFmUsername}
+                      onChange={(_, data) => setSetting("lastFmUsername", data.value)}
+                      placeholder="your_lastfm_name"
+                    />
+                  </div>
+                  <div className={styles.rowField}>
+                    <Label>{t("settings.lastFmScrobbleEnabled")}</Label>
+                    <Switch checked={settings.lastFmScrobbleEnabled} onChange={(e) => setSetting("lastFmScrobbleEnabled", e.target.checked)} />
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.lastFmTitleFormatMode")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.lastFmTitleFormatMode")}
+                      value={settings.lastFmTitleFormatMode}
+                      selectedOptions={[settings.lastFmTitleFormatMode]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("lastFmTitleFormatMode", data.optionValue as LastFmTitleFormatMode);
+                      }}
+                    >
+                      <Option value="raw">{t("settings.lastFmTitleFormatRaw")}</Option>
+                      <Option value="clean">{t("settings.lastFmTitleFormatClean")}</Option>
+                    </Dropdown>
+                  </div>
+                  {settings.lastFmTitleFormatMode === "clean" ? (
+                    <>
+                      <div className={styles.rowField}>
+                        <Label>{t("settings.lastFmTrimArtistPrefix")}</Label>
+                        <Switch checked={settings.lastFmTrimArtistPrefix} onChange={(e) => setSetting("lastFmTrimArtistPrefix", e.target.checked)} />
+                      </div>
+                      <div className={styles.rowField}>
+                        <Label>{t("settings.lastFmTrimFeaturingSuffix")}</Label>
+                        <Switch checked={settings.lastFmTrimFeaturingSuffix} onChange={(e) => setSetting("lastFmTrimFeaturingSuffix", e.target.checked)} />
+                      </div>
+                      <div className={styles.rowField}>
+                        <Label>{t("settings.lastFmTrimBracketTags")}</Label>
+                        <Switch checked={settings.lastFmTrimBracketTags} onChange={(e) => setSetting("lastFmTrimBracketTags", e.target.checked)} />
+                      </div>
+                      <div className={styles.rowField}>
+                        <Label>{t("settings.lastFmTrimDashTags")}</Label>
+                        <Switch checked={settings.lastFmTrimDashTags} onChange={(e) => setSetting("lastFmTrimDashTags", e.target.checked)} />
+                      </div>
+                    </>
+                  ) : null}
+                  <Button appearance="outline" onClick={openLastFmAuth}>
+                    {t("settings.lastFmOpenAuth")}
+                  </Button>
+                </SectionCard>
+              )}
+
+              {activeTab === "advanced" && (
+                <SectionCard title={t("settings.advancedSection")}>
+                  <div className={styles.field}>
+                    <Label>{t("settings.bearerToken")}</Label>
+                    <Input value={settings.token} onChange={(e, data) => setSetting("token", data.value)} placeholder={t("settings.optional")} />
+                    <Caption1 className={styles.helperText}>{t("settings.oauthRecommended")}</Caption1>
+                  </div>
+
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: "8px" }}>
+                    <Button onClick={handleExport} appearance="outline">{t("settings.exportSettings")}</Button>
+                    <Button onClick={() => fileInputRef.current?.click()} appearance="outline">{t("settings.importSettings")}</Button>
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="application/json"
+                      style={{ display: "none" }}
+                      onChange={async (event) => {
+                        const file = event.target.files?.[0];
+                        if (!file) return;
+                        const text = await file.text();
+                        const result = importSettings(text);
+                        if (result.ok) {
+                          openNoticeDialog(t("settings.importSuccessTitle"), t("settings.importSuccessMessage"));
+                        } else {
+                          openNoticeDialog(t("settings.importFailedTitle"), result.error || t("settings.importFailedMessage"));
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {isResetConfirmOpen ? (
+                    <div className={styles.alert}>
+                      <Text weight="semibold">{t("settings.confirmReset")}</Text>
+                      <div style={{ display: "flex", gap: "8px" }}>
+                        <Button
+                          size="small"
+                          appearance="primary"
+                          onClick={() => {
+                            resetSettings();
+                            instanceUrlForm.reset({ instanceUrl: "https://invidious.tsub4sa.xyz" });
+                            setIsResetConfirmOpen(false);
+                          }}
+                        >
+                          {t("settings.reset")}
+                        </Button>
+                        <Button size="small" appearance="outline" onClick={() => setIsResetConfirmOpen(false)}>{t("common.cancel")}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <Button appearance="outline" onClick={() => setIsResetConfirmOpen(true)}>{t("settings.resetSettings")}</Button>
+                  )}
+                </SectionCard>
+              )}
             </div>
           </div>
 

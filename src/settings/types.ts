@@ -25,6 +25,9 @@ export interface AppSettings {
 
   saveWatchHistory: boolean;
   showSearchSuggestions: boolean;
+  warnBeforeOpeningExternalLinks: boolean;
+  openExternalLinksInNewTab: boolean;
+  trustedExternalLinkDomains: string[];
 
   autoplay: boolean;
   livePlaybackEnabled: boolean;
@@ -40,6 +43,7 @@ export interface AppSettings {
   useProxyVideo: boolean;
   rememberPlaybackPosition: boolean;
   miniPlayer: boolean;
+  playerCloseButton: boolean;
   theaterMode: boolean;
   autoplayNextVideo: boolean;
   showCaptionsByDefault: boolean;
@@ -95,7 +99,6 @@ export interface AppSettings {
   muted: boolean;
 
   // Shorts
-  favoriteShortsChannelIds: string[];
   hideShorts: boolean;
   hideMobileNavLabels: boolean;
 }

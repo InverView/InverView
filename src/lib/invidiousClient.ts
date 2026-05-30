@@ -1,5 +1,8 @@
+import axios, { type Method } from "axios";
 import { getSettingsSnapshot } from "../store/settingsStore";
 import { getApiCache, setApiCache } from "./cacheDb";
+import { elapsedMsSince, nowMs } from "./time";
+import { parseJson } from "./safeJson";
 import type {
   AuthFeedResponse,
   AuthPlaylistsResponse,
@@ -112,26 +115,30 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
   }
 
   const existingInFlight = inFlightRequests.get(inFlightKey);
-  if (existingInFlight && Date.now() - existingInFlight.startedAt < IN_FLIGHT_DEDUPE_WINDOW_MS) {
+  if (existingInFlight && elapsedMsSince(existingInFlight.startedAt) < IN_FLIGHT_DEDUPE_WINDOW_MS) {
     return existingInFlight.promise as Promise<T>;
   }
 
-  const headers = new Headers();
+  const requestHeaders: Record<string, string> = {};
   if (options.json !== undefined) {
-    headers.set("Content-Type", "application/json");
+    requestHeaders["Content-Type"] = "application/json";
   }
   if (options.needAuth && token) {
-    headers.set("Authorization", `Bearer ${token}`);
+    requestHeaders.Authorization = `Bearer ${token}`;
   }
 
   const requestPromise = (async (): Promise<T> => {
-    let response: Response;
+    let response: Awaited<ReturnType<typeof axios.request<string>>>;
     try {
-      response = await fetch(url, {
-        method: options.method ?? "GET",
-        headers,
-        body: options.json !== undefined ? JSON.stringify(options.json) : undefined,
+      response = await axios.request<string>({
+        url,
+        method: (options.method ?? "GET") as Method,
+        headers: requestHeaders,
+        data: options.json,
         signal: options.signal,
+        responseType: "text",
+        transformResponse: [(data) => data],
+        validateStatus: () => true,
       });
     } catch (error) {
       throw new ApiError("インスタンスが応答していません。API Base URL を確認してください。", {
@@ -141,7 +148,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
     }
 
     if (response.status >= 400) {
-      const body = await response.text().catch(() => "");
+      const body = response.data ?? "";
       throw new ApiError(getErrorMessage(path, response.status), {
         status: response.status,
         endpoint,
@@ -153,20 +160,20 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
       return undefined as T;
     }
 
-    const contentType = response.headers.get("content-type") ?? "";
+    const contentType = String(response.headers["content-type"] ?? "");
     if (contentType.includes("application/json")) {
-      const json = (await response.json()) as T;
+      const json = response.data ? parseJson(response.data) as T : undefined as T;
       if (useCache) {
         await setApiCache(cacheKey, json, options.cacheTtlMs ?? 0);
       }
       return json;
     }
 
-    const text = await response.text();
+    const text = response.data ?? "";
     if (!text) return undefined as T;
 
     try {
-      const parsed = JSON.parse(text) as T;
+      const parsed = parseJson(text) as T;
       if (useCache) {
         await setApiCache(cacheKey, parsed, options.cacheTtlMs ?? 0);
       }
@@ -176,7 +183,7 @@ async function requestJson<T>(path: string, options: RequestOptions = {}): Promi
     }
   })();
 
-  inFlightRequests.set(inFlightKey, { startedAt: Date.now(), promise: requestPromise });
+  inFlightRequests.set(inFlightKey, { startedAt: nowMs(), promise: requestPromise });
   try {
     return await requestPromise;
   } finally {

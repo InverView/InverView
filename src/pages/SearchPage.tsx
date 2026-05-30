@@ -11,6 +11,7 @@ import {
   DialogContent,
   DialogBody,
   DialogActions,
+  mergeClasses,
 } from "@fluentui/react-components";
 import { Filter24Regular } from "@fluentui/react-icons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
@@ -26,6 +27,7 @@ import { addRecentSearch } from "../lib/recentSearch";
 import { useSettingsStore } from "../store/settingsStore";
 import { useEffect, useMemo, useState } from "react";
 import { LabeledCombobox, type SelectOption } from "../components/LabeledCombobox";
+import { getStorageString, removeStorageValue } from "../lib/browserStorage";
 
 const featureOptions = ["hd", "subtitles", "4k", "live", "360", "hdr", "vr180"] as const;
 const typeOptions: SelectOption[] = [
@@ -59,6 +61,10 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
     gap: "20px",
+  },
+  suppressSecondaryMotion: {
+    animation: "none !important",
+    transition: "none !important",
   },
   searchForm: {
     display: "flex",
@@ -101,8 +107,18 @@ export const SearchPage = (): JSX.Element => {
   const defaultRegion = useSettingsStore((state) => state.region);
   const [inputValue, setInputValue] = useState(q);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [suppressSecondaryMotion, setSuppressSecondaryMotion] = useState(false);
 
   const filters = useMemo(() => buildFiltersFromQuery(searchParams, defaultRegion), [searchParams, defaultRegion]);
+
+  useEffect(() => {
+    const suppress = getStorageString("session", "inverview:suppress-next-page-secondary-animation") === "1";
+    if (!suppress) return;
+    removeStorageValue("session", "inverview:suppress-next-page-secondary-animation");
+    setSuppressSecondaryMotion(true);
+    const timerId = window.setTimeout(() => setSuppressSecondaryMotion(false), 450);
+    return () => window.clearTimeout(timerId);
+  }, []);
 
   useEffect(() => {
     setInputValue(q);
@@ -180,8 +196,7 @@ export const SearchPage = (): JSX.Element => {
   };
 
   return (
-    <div className={styles.container}>
-      <Text size={700} weight="bold">{t("search.title")}</Text>
+    <div className={mergeClasses(styles.container, suppressSecondaryMotion && styles.suppressSecondaryMotion)}>
 
       <form
         className={styles.searchForm}

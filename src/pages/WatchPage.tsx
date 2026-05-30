@@ -244,7 +244,7 @@ const useStyles = makeStyles({
     display: "flex",
     alignItems: "flex-start",
     gap: "8px",
-    height: "102px",
+    height: "94px",
   },
   relatedCardWrap: {
     flex: 1,

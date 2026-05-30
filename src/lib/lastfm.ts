@@ -1,7 +1,20 @@
+import axios from "axios";
 import type { AppSettings } from "../settings/types";
 import type { VideoDetails } from "../types/invidious";
+import { nowUnixSeconds } from "./time";
 
 const LASTFM_API_URL = "https://ws.audioscrobbler.com/2.0/";
+
+const postLastFm = async <T = unknown>(params: Record<string, string>): Promise<T> => {
+  const response = await axios.post<T>(LASTFM_API_URL, new URLSearchParams(params), {
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    validateStatus: () => true,
+  });
+  if (response.status < 200 || response.status >= 300) {
+    throw new Error(`Last.fm request failed: ${response.status}`);
+  }
+  return response.data;
+};
 
 const md5 = (input: string): string => {
   function rotateLeft(value: number, shift: number): number {
@@ -130,21 +143,12 @@ export const scrobbleMusicVideo = async (video: VideoDetails, settings: AppSetti
     sk: settings.lastFmSessionKey.trim(),
     artist: payload.artist,
     track: payload.track,
-    timestamp: String(Math.floor(Date.now() / 1000)),
+    timestamp: String(nowUnixSeconds()),
   };
   params.api_sig = createApiSig(params, settings.lastFmApiSecret.trim());
   params.format = "json";
 
-  const body = new URLSearchParams(params);
-  const response = await fetch(LASTFM_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-
-  if (!response.ok) {
-    throw new Error(`Last.fm scrobble failed: ${response.status}`);
-  }
+  await postLastFm(params);
 };
 
 export const updateNowPlayingMusicVideo = async (video: VideoDetails, settings: AppSettings): Promise<void> => {
@@ -164,15 +168,7 @@ export const updateNowPlayingMusicVideo = async (video: VideoDetails, settings: 
   params.api_sig = createApiSig(params, settings.lastFmApiSecret.trim());
   params.format = "json";
 
-  const body = new URLSearchParams(params);
-  const response = await fetch(LASTFM_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!response.ok) {
-    throw new Error(`Last.fm now playing failed: ${response.status}`);
-  }
+  await postLastFm(params);
 };
 
 interface LastFmSessionResponse {
@@ -197,17 +193,7 @@ export const getLastFmSessionFromToken = async (
   params.api_sig = createApiSig(params, apiSecret.trim());
   params.format = "json";
 
-  const body = new URLSearchParams(params);
-  const response = await fetch(LASTFM_API_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body,
-  });
-  if (!response.ok) {
-    throw new Error(`Last.fm auth.getSession failed: ${response.status}`);
-  }
-
-  const data = await response.json() as LastFmSessionResponse;
+  const data = await postLastFm<LastFmSessionResponse>(params);
   if (data.error || !data.session?.key || !data.session?.name) {
     throw new Error(data.message || "Last.fm auth.getSession failed");
   }

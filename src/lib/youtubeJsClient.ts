@@ -1,5 +1,8 @@
 import Innertube, { ClientType, type OAuth2Tokens } from "youtubei.js";
+import ky from "ky";
+import { z } from "zod";
 import { getSettingsSnapshot } from "../store/settingsStore";
+import { parseJsonWithSchema } from "./safeJson";
 
 const normalizeProxyBase = (value: string): string => {
   const trimmed = (value || "").trim();
@@ -16,11 +19,7 @@ const getAuthCredentials = (): OAuth2Tokens | undefined => {
   const { youtubeTvOauthCredentials } = getSettingsSnapshot();
   const raw = (youtubeTvOauthCredentials || "").trim();
   if (!raw) return undefined;
-  try {
-    return JSON.parse(raw) as OAuth2Tokens;
-  } catch {
-    return undefined;
-  }
+  return parseJsonWithSchema(raw, z.custom<OAuth2Tokens>((value) => typeof value === "object" && value !== null), undefined);
 };
 
 const createProxyFetch = (proxyBase: string): typeof fetch => {
@@ -33,17 +32,17 @@ const createProxyFetch = (proxyBase: string): typeof fetch => {
     if (settings.youtubeAuthMode === "cookie" && settings.youtubeCookie.trim()) {
       headers.set("x-ytjs-cookie", settings.youtubeCookie.trim());
     }
-    const proxiedInit: RequestInit & { duplex?: "half" } = {
+    const proxiedInit: RequestInit = {
       method: request.method,
       headers,
       body: request.body,
       redirect: "manual",
       signal: request.signal,
     };
-    if (request.body && request.method !== "GET" && request.method !== "HEAD") {
-      proxiedInit.duplex = "half";
-    }
-    return fetch(proxiedUrl, proxiedInit);
+    return ky(proxiedUrl, {
+      ...proxiedInit,
+      throwHttpErrors: false,
+    });
   };
 };
 

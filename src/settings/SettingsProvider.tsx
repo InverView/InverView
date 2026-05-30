@@ -4,6 +4,7 @@ import { getSettingsSnapshot, mergeSettings, setSettingsSnapshot } from "./stora
 import type { AppSettings, MiniPlayerContextValue, MiniPlayerState, SettingsContextValue } from "./types";
 import { notifyError, notifySuccess } from "../lib/notifications";
 import { MiniPlayerContext, SettingsContext } from "./contexts";
+import { parseJsonUnknown, stringifyJson } from "../lib/safeJson";
 
 interface SettingsProviderProps {
   children: ReactNode;
@@ -35,20 +36,19 @@ export const SettingsProvider = ({ children }: SettingsProviderProps): JSX.Eleme
     notifySuccess("設定をリセットしました。");
   };
 
-  const exportSettings = (): string => JSON.stringify(settings, null, 2);
+  const exportSettings = (): string => stringifyJson(settings, 2);
 
   const importSettings: SettingsContextValue["importSettings"] = (json) => {
-    try {
-      const parsed = JSON.parse(json) as unknown;
-      const next = mergeSettings(parsed);
-      setSettings(next);
-      setSettingsSnapshot(next);
-      notifySuccess("設定をインポートしました。");
-      return { ok: true };
-    } catch {
+    const parsed = parseJsonUnknown(json);
+    if (parsed === undefined) {
       notifyError("設定のインポートに失敗しました。");
       return { ok: false, error: "JSON の読み込みに失敗しました。" };
     }
+    const next = mergeSettings(parsed);
+    setSettings(next);
+    setSettingsSnapshot(next);
+    notifySuccess("設定をインポートしました。");
+    return { ok: true };
   };
 
   const value = useMemo<SettingsContextValue>(() => ({

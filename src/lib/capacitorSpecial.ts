@@ -1,4 +1,5 @@
 import { isCapacitorRuntime } from "./runtimeEnv";
+import { dateFromNow } from "./time";
 
 const BG_NOTIFICATION_ID = 91001;
 
@@ -85,7 +86,7 @@ export const showBackgroundPlaybackNotification = async (title: string, body: st
           id: BG_NOTIFICATION_ID,
           title,
           body,
-          schedule: { at: new Date(Date.now() + 100) },
+          schedule: { at: dateFromNow(100) },
           ongoing: true,
           autoCancel: false,
         },

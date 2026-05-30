@@ -17,6 +17,8 @@ import { useSettingsStore } from "../store/settingsStore";
 import { pickBestThumbnail } from "../lib/media";
 import type { VideoObject } from "../types/invidious";
 import { useTranslation } from "react-i18next";
+import { z } from "zod";
+import { getStorageJson, setStorageJson } from "../lib/browserStorage";
 
 const useStyles = makeStyles({
   container: {
@@ -122,6 +124,7 @@ const useStyles = makeStyles({
 });
 
 const MAX_HISTORY = 15;
+const shortsHistorySchema = z.array(z.string());
 
 export const ShortsPage = (): JSX.Element => {
   const styles = useStyles();
@@ -138,12 +141,11 @@ export const ShortsPage = (): JSX.Element => {
 
   // Viewed history management
   const [viewedHistory, setViewedHistory] = useState<string[]>(() => {
-    const saved = localStorage.getItem("shorts_history");
-    return saved ? JSON.parse(saved) : [];
+    return getStorageJson("local", "shorts_history", shortsHistorySchema, []);
   });
 
   useEffect(() => {
-    localStorage.setItem("shorts_history", JSON.stringify(viewedHistory));
+    setStorageJson("local", "shorts_history", viewedHistory);
   }, [viewedHistory]);
 
   const listQuery = useQuery({

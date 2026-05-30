@@ -1,5 +1,6 @@
 import { Button, Text, makeStyles, tokens } from "@fluentui/react-components";
 import { ArrowClockwise24Regular, Phone24Regular } from "@fluentui/react-icons";
+import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { openExternalUrl } from "../lib/webPlatform";
@@ -105,9 +106,11 @@ export const TvHomePage = (): JSX.Element => {
     let active = true;
     const createSession = async () => {
       try {
-        const response = await fetch("/tv-sync/session", { method: "POST" });
-        if (!response.ok) throw new Error(`Failed: ${response.status}`);
-        const data = (await response.json()) as { sessionId: string };
+        const response = await axios.post<{ sessionId: string }>("/tv-sync/session", undefined, {
+          validateStatus: () => true,
+        });
+        if (response.status < 200 || response.status >= 300) throw new Error(`Failed: ${response.status}`);
+        const data = response.data;
         if (!active) return;
         setSessionId(data.sessionId);
         setErrorMessage("");
@@ -127,12 +130,15 @@ export const TvHomePage = (): JSX.Element => {
     let active = true;
     const timer = window.setInterval(async () => {
       try {
-        const response = await fetch(`/tv-sync/session/${sessionId}/command?after=${encodeURIComponent(lastCommandId)}`);
-        if (!response.ok) return;
-        const data = (await response.json()) as {
+        const response = await axios.get<{
           hasCommand: boolean;
           command?: { id: string; videoId: string };
-        };
+        }>(`/tv-sync/session/${sessionId}/command`, {
+          params: { after: lastCommandId },
+          validateStatus: () => true,
+        });
+        if (response.status < 200 || response.status >= 300) return;
+        const data = response.data;
         if (!active || !data.hasCommand || !data.command) return;
         setLastCommandId(data.command.id);
         navigate(

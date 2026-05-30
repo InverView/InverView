@@ -1,15 +1,13 @@
 import {
-  Text,
   TabList,
   Tab,
   Button,
   makeStyles,
-  tokens,
   type TabListProps,
   mergeClasses,
 } from "@fluentui/react-components";
 import { ArrowClockwise24Regular } from "@fluentui/react-icons";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -25,6 +23,7 @@ import { getLocalSubscriptionIds } from "../lib/localSubscriptions";
 import type { VideoObject } from "../types/invidious";
 import { mergeTrendingAndSubscriptions } from "../lib/workerClient";
 import { settledWithConcurrencyLimit } from "../lib/promiseLimit";
+import { getStorageString, removeStorageValue, setStorageString } from "../lib/browserStorage";
 
 
 const trendCategories = ["default", "music", "gaming", "movies"] as const;
@@ -104,6 +103,7 @@ export const HomePage = (): JSX.Element => {
   const prevSidebarCollapsedRef = useRef(sidebarCollapsed);
   const { t } = useTranslation();
   const [isScrolledLeft, setIsScrolledLeft] = useState(false);
+  const [suppressSecondaryMotion, setSuppressSecondaryMotion] = useState(false);
   
   const initialTab = searchParams.get("homeTab") === "trending" ? "trending" : "popular";
   const rawCategory = searchParams.get("category");
@@ -149,6 +149,18 @@ export const HomePage = (): JSX.Element => {
 
   const [mergedVideos, setMergedVideos] = useState<VideoObject[]>([]);
   const [isMerging, setIsMerging] = useState(false);
+  const popularVideos = useMemo(() => {
+    const data = popularQuery.data;
+    if (!Array.isArray(data)) return [];
+    const items: VideoObject[] = [];
+    for (let index = 0; index < data.length; index += 1) {
+      const item = data[index];
+      if (item && !item.liveNow && !item.isUpcoming) {
+        items.push(item);
+      }
+    }
+    return items;
+  }, [popularQuery.data]);
 
   useEffect(() => {
     let active = true;
@@ -158,11 +170,15 @@ export const HomePage = (): JSX.Element => {
       : (Array.isArray(localSubscribedVideosQuery.data) ? localSubscribedVideosQuery.data : []);
 
     if (trendingData.length === 0 && subscribedData.length === 0) {
-      setMergedVideos([]);
+      queueMicrotask(() => {
+        if (active) setMergedVideos([]);
+      });
       return;
     }
 
-    setIsMerging(true);
+    queueMicrotask(() => {
+      if (active) setIsMerging(true);
+    });
     void mergeTrendingAndSubscriptions(trendingData, subscribedData).then((result) => {
       if (active) {
         setMergedVideos(result);
@@ -176,12 +192,31 @@ export const HomePage = (): JSX.Element => {
   }, [trendingQuery.data, authFeedQuery.data, localSubscribedVideosQuery.data, token]);
 
   useEffect(() => {
+    const suppress = getStorageString("session", "inverview:suppress-next-page-secondary-animation") === "1";
+    if (!suppress) return;
+    removeStorageValue("session", "inverview:suppress-next-page-secondary-animation");
+    const startTimerId = window.setTimeout(() => setSuppressSecondaryMotion(true), 0);
+    const timerId = window.setTimeout(() => setSuppressSecondaryMotion(false), 450);
+    return () => {
+      window.clearTimeout(startTimerId);
+      window.clearTimeout(timerId);
+    };
+  }, []);
+
+  useEffect(() => {
     if (prevSidebarCollapsedRef.current === sidebarCollapsed) return;
+    if (suppressSecondaryMotion) {
+      prevSidebarCollapsedRef.current = sidebarCollapsed;
+      return;
+    }
     prevSidebarCollapsedRef.current = sidebarCollapsed;
-    setSidebarAnimating(true);
+    const startTimerId = window.setTimeout(() => setSidebarAnimating(true), 0);
     const timerId = window.setTimeout(() => setSidebarAnimating(false), 170);
-    return () => window.clearTimeout(timerId);
-  }, [sidebarCollapsed]);
+    return () => {
+      window.clearTimeout(startTimerId);
+      window.clearTimeout(timerId);
+    };
+  }, [sidebarCollapsed, suppressSecondaryMotion]);
 
   useEffect(() => {
     let timeoutId = 0;
@@ -217,8 +252,8 @@ export const HomePage = (): JSX.Element => {
   }, [category, initialTab, queryClient, region]);
 
   useEffect(() => {
-    if (sessionStorage.getItem("invidious-start-page-applied") === "1") return;
-    sessionStorage.setItem("invidious-start-page-applied", "1");
+    if (getStorageString("session", "invidious-start-page-applied") === "1") return;
+    setStorageString("session", "invidious-start-page-applied", "1");
     if (settings.startPage === "home") return;
     if (settings.startPage === "trending") navigate("/?homeTab=trending", { replace: true });
     if (settings.startPage === "popular") navigate("/?homeTab=popular", { replace: true });
@@ -238,22 +273,18 @@ export const HomePage = (): JSX.Element => {
   };
 
   const renderPopular = (): JSX.Element => {
-    const data = popularQuery.data;
-    const items = Array.isArray(data)
-      ? data.filter((item) => item && !item.liveNow && !item.isUpcoming)
-      : [];
     return (
       <QueryStateView
         isLoading={popularQuery.isLoading}
         isError={popularQuery.isError}
-        isEmpty={!items.length}
+        isEmpty={!popularVideos.length}
         errorTitle={t("home.popularFetchErrorTitle")}
         errorMessage={t("home.popularFetchErrorMessage")}
         emptyTitle={t("home.popularEmptyTitle")}
         emptyDescription={t("home.popularEmptyDescription")}
         onRetry={() => void popularQuery.refetch()}
       >
-        <VideoGrid items={items} />
+        <VideoGrid items={popularVideos} />
       </QueryStateView>
     );
   };

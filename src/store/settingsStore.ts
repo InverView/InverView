@@ -28,6 +28,9 @@ export interface LegacySettingsState {
   expandCommentsByDefault: boolean;
   saveWatchHistory: boolean;
   showSearchSuggestions: boolean;
+  warnBeforeOpeningExternalLinks: boolean;
+  openExternalLinksInNewTab: boolean;
+  trustedExternalLinkDomains: string[];
   useLenis: boolean;
   sidebarCollapsed: boolean;
   quality: AppSettings["quality"];
@@ -46,7 +49,6 @@ export interface LegacySettingsState {
   youtubeTvOauthCredentials: string;
   volume: number;
   muted: boolean;
-  favoriteShortsChannelIds: string[];
   hideShorts: boolean;
   hideMobileNavLabels: boolean;
   setVolume: (value: number) => void;
@@ -67,7 +69,6 @@ export interface LegacySettingsState {
   setDataSaver: (value: boolean) => void;
   setCompanionUrl: (value: string) => void;
   setCompanionSecret: (value: string) => void;
-  setFavoriteShortsChannelIds: (value: string[]) => void;
   setHideShorts: (value: boolean) => void;
   setHideMobileNavLabels: (value: boolean) => void;
   setUseLenis: (value: boolean) => void;
@@ -97,6 +98,9 @@ const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<Ap
   expandCommentsByDefault: settings.expandCommentsByDefault,
   saveWatchHistory: settings.saveWatchHistory,
   showSearchSuggestions: settings.showSearchSuggestions,
+  warnBeforeOpeningExternalLinks: settings.warnBeforeOpeningExternalLinks,
+  openExternalLinksInNewTab: settings.openExternalLinksInNewTab,
+  trustedExternalLinkDomains: settings.trustedExternalLinkDomains,
   useLenis: settings.useLenis,
   sidebarCollapsed: settings.sidebarCollapsed,
   quality: settings.quality,
@@ -115,7 +119,6 @@ const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<Ap
   youtubeTvOauthCredentials: settings.youtubeTvOauthCredentials,
   volume: settings.volume,
   muted: settings.muted,
-  favoriteShortsChannelIds: settings.favoriteShortsChannelIds,
   hideShorts: settings.hideShorts,
   hideMobileNavLabels: settings.hideMobileNavLabels,
   setVolume: (value) => updateSettings({ volume: value }),
@@ -136,7 +139,6 @@ const toLegacyState = (settings: AppSettings, updateSettings: (patch: Partial<Ap
   setDataSaver: (value) => updateSettings({ dataSaver: value }),
   setCompanionUrl: (value) => updateSettings({ companionUrl: value }),
   setCompanionSecret: (value) => updateSettings({ companionSecret: value }),
-  setFavoriteShortsChannelIds: (value) => updateSettings({ favoriteShortsChannelIds: value }),
   setHideShorts: (value) => updateSettings({ hideShorts: value }),
   setHideMobileNavLabels: (value) => updateSettings({ hideMobileNavLabels: value }),
   setUseLenis: (value) => updateSettings({ useLenis: value }),

@@ -1,8 +1,22 @@
 import { defaultSettings, SEARCH_HISTORY_STORAGE_KEY, SETTINGS_STORAGE_KEY, WATCH_HISTORY_STORAGE_KEY } from "./defaults";
 import type { AppSettings, WatchHistoryItem } from "./types";
+import { getStorageJson, setStorageJson } from "../lib/browserStorage";
 import { scheduleTask, withWebLock } from "../lib/webPlatform";
+import { z } from "zod";
 
 const isObject = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null;
+
+const watchHistorySchema = z.array(z.object({
+  videoId: z.string(),
+  title: z.string().optional().default(""),
+  thumbnailUrl: z.string().optional().default(""),
+  channelName: z.string().optional().default(""),
+  watchedAt: z.number().optional().default(0),
+  positionSeconds: z.number().optional().default(0),
+  durationSeconds: z.number().optional(),
+}).passthrough());
+
+const searchHistorySchema = z.array(z.string());
 
 const clampNumber = (value: unknown, fallback: number, min: number, max: number): number => {
   if (typeof value !== "number" || Number.isNaN(value)) return fallback;
@@ -55,6 +69,19 @@ export const mergeSettings = (raw: unknown): AppSettings => {
       typeof raw.hapticFeedback === "boolean"
         ? raw.hapticFeedback
         : defaultSettings.hapticFeedback,
+    warnBeforeOpeningExternalLinks:
+      typeof raw.warnBeforeOpeningExternalLinks === "boolean"
+        ? raw.warnBeforeOpeningExternalLinks
+        : defaultSettings.warnBeforeOpeningExternalLinks,
+    openExternalLinksInNewTab:
+      typeof raw.openExternalLinksInNewTab === "boolean"
+        ? raw.openExternalLinksInNewTab
+        : defaultSettings.openExternalLinksInNewTab,
+    trustedExternalLinkDomains: Array.isArray(raw.trustedExternalLinkDomains)
+      ? raw.trustedExternalLinkDomains
+          .filter((value): value is string => typeof value === "string" && !!value.trim())
+          .map((value) => value.trim().toLowerCase())
+      : defaultSettings.trustedExternalLinkDomains,
     theme: (legacyTheme as AppSettings["theme"]) || defaultSettings.theme,
     customAccentColor: typeof raw.customAccentColor === "string" ? raw.customAccentColor : defaultSettings.customAccentColor,
     cardOpacity: clampNumber(raw.cardOpacity, defaultSettings.cardOpacity, 0.2, 1),
@@ -71,19 +98,13 @@ export const mergeSettings = (raw: unknown): AppSettings => {
 };
 
 export const loadSettingsFromStorage = (): AppSettings => {
-  try {
-    const raw = localStorage.getItem(SETTINGS_STORAGE_KEY);
-    if (!raw) return defaultSettings;
-    return mergeSettings(JSON.parse(raw));
-  } catch {
-    return defaultSettings;
-  }
+  return mergeSettings(getStorageJson("local", SETTINGS_STORAGE_KEY, z.unknown(), defaultSettings));
 };
 
 export const saveSettingsToStorage = (settings: AppSettings): void => {
   scheduleTask(() => {
     withWebLock("inverview-settings-write", () => {
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+      setStorageJson("local", SETTINGS_STORAGE_KEY, settings);
     });
   }, "background");
 };
@@ -102,40 +123,25 @@ export const setSettingsSnapshot = (settings: AppSettings): void => {
 };
 
 export const loadWatchHistory = (): WatchHistoryItem[] => {
-  try {
-    const raw = localStorage.getItem(WATCH_HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as WatchHistoryItem[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item) => item && typeof item.videoId === "string");
-  } catch {
-    return [];
-  }
+  return getStorageJson("local", WATCH_HISTORY_STORAGE_KEY, watchHistorySchema, []);
 };
 
 export const saveWatchHistory = (history: WatchHistoryItem[]): void => {
   scheduleTask(() => {
     withWebLock("inverview-watch-history-write", () => {
-      localStorage.setItem(WATCH_HISTORY_STORAGE_KEY, JSON.stringify(history.slice(0, 300)));
+      setStorageJson("local", WATCH_HISTORY_STORAGE_KEY, history.slice(0, 300));
     });
   }, "background");
 };
 
 export const loadSearchHistory = (): string[] => {
-  try {
-    const raw = localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as string[];
-    return Array.isArray(parsed) ? parsed.filter((item) => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
+  return getStorageJson("local", SEARCH_HISTORY_STORAGE_KEY, searchHistorySchema, []);
 };
 
 export const saveSearchHistory = (history: string[]): void => {
   scheduleTask(() => {
     withWebLock("inverview-search-history-write", () => {
-      localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(history.slice(0, 30)));
+      setStorageJson("local", SEARCH_HISTORY_STORAGE_KEY, history.slice(0, 30));
     });
   }, "background");
 };

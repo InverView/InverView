@@ -1,5 +1,17 @@
-import { useEffect, useMemo } from "react";
-import { FluentProvider } from "@fluentui/react-components";
+import { useEffect, useMemo, useState } from "react";
+import axios from "axios";
+import {
+  Button,
+  Checkbox,
+  Dialog,
+  DialogActions,
+  DialogBody,
+  DialogContent,
+  DialogSurface,
+  DialogTitle,
+  FluentProvider,
+  Text,
+} from "@fluentui/react-components";
 import { QueryErrorResetBoundary } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { AppRoutes } from "./routes";
@@ -12,6 +24,144 @@ import { isCapacitorRuntime } from "./lib/runtimeEnv";
 import { setPrivacyScreenEnabled } from "./lib/capacitorSpecial";
 import { useOnlineStatus } from "./hooks/useOnlineStatus";
 import { OfflineView } from "./components/OfflineView";
+
+const isExternalHttpUrl = (url: URL): boolean => {
+  if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  return url.origin !== window.location.origin;
+};
+
+const openExternalLink = (url: string, inNewTab: boolean): void => {
+  if (inNewTab) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+  window.location.assign(url);
+};
+
+const ExternalLinkGuard = (): JSX.Element => {
+  const { settings, setSetting } = useSettings();
+  const { t } = useTranslation();
+  const [pendingUrl, setPendingUrl] = useState<string | null>(null);
+  const [trustPendingDomain, setTrustPendingDomain] = useState(false);
+  const pendingDomain = useMemo(() => {
+    if (!pendingUrl) return "";
+    try {
+      return new URL(pendingUrl).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  }, [pendingUrl]);
+
+  useEffect(() => {
+    const onDocumentClick = (event: MouseEvent): void => {
+      if (event.defaultPrevented) return;
+      if (event.button !== 0) return;
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+
+      const anchor = target.closest("a[href]");
+      if (!(anchor instanceof HTMLAnchorElement)) return;
+      if (anchor.dataset.skipExternalLinkGuard === "true") return;
+      if (anchor.hasAttribute("download")) return;
+
+      let url: URL;
+      try {
+        url = new URL(anchor.href, window.location.href);
+      } catch {
+        return;
+      }
+
+      if (!isExternalHttpUrl(url)) return;
+      const domain = url.hostname.toLowerCase();
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (
+        !settings.warnBeforeOpeningExternalLinks ||
+        settings.trustedExternalLinkDomains.includes(domain)
+      ) {
+        openExternalLink(url.href, settings.openExternalLinksInNewTab);
+        return;
+      }
+
+      setTrustPendingDomain(false);
+      setPendingUrl(url.href);
+    };
+
+    document.addEventListener("click", onDocumentClick, true);
+    return () => document.removeEventListener("click", onDocumentClick, true);
+  }, [
+    settings.openExternalLinksInNewTab,
+    settings.trustedExternalLinkDomains,
+    settings.warnBeforeOpeningExternalLinks,
+  ]);
+
+  const close = (): void => {
+    setPendingUrl(null);
+    setTrustPendingDomain(false);
+  };
+
+  const rememberPendingDomain = (): void => {
+    if (
+      trustPendingDomain &&
+      pendingDomain &&
+      !settings.trustedExternalLinkDomains.includes(pendingDomain)
+    ) {
+      setSetting("trustedExternalLinkDomains", [...settings.trustedExternalLinkDomains, pendingDomain]);
+    }
+  };
+
+  return (
+    <Dialog open={!!pendingUrl} onOpenChange={(_, data) => { if (!data.open) close(); }}>
+      <DialogSurface>
+        <DialogBody>
+          <DialogTitle>{t("externalLink.title")}</DialogTitle>
+          <DialogContent>
+            <Text block>{t("externalLink.description")}</Text>
+            {pendingUrl ? (
+              <Text block size={200} style={{ wordBreak: "break-all", marginTop: "8px" }}>
+                {pendingUrl}
+              </Text>
+            ) : null}
+            {pendingDomain ? (
+              <>
+                <Text block size={200} style={{ marginTop: "8px" }}>
+                  {t("externalLink.domain", { domain: pendingDomain })}
+                </Text>
+                <Checkbox
+                  checked={trustPendingDomain}
+                  label={t("externalLink.trustDomain")}
+                  onChange={(_, data) => setTrustPendingDomain(data.checked === true)}
+                  style={{ marginTop: "8px" }}
+                />
+              </>
+            ) : null}
+          </DialogContent>
+          <DialogActions>
+            <Button appearance="secondary" onClick={close}>
+              {t("common.cancel")}
+            </Button>
+            <Button
+              appearance="primary"
+              onClick={() => {
+                if (!pendingUrl) return;
+                const url = pendingUrl;
+                rememberPendingDomain();
+                close();
+                openExternalLink(url, settings.openExternalLinksInNewTab);
+              }}
+            >
+              {t("externalLink.open")}
+            </Button>
+          </DialogActions>
+        </DialogBody>
+      </DialogSurface>
+    </Dialog>
+  );
+};
 
 const toHexColor = (value: string): string | null => {
   const color = value.trim();
@@ -44,18 +194,14 @@ const ThemeSync = (): JSX.Element => {
       const fallbackUrl = "https://proxy.tsub4sa.xyz";
 
       try {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 3000);
-
-        const res = await fetch(`${primaryUrl}/health`, {
-          method: "GET",
-          signal: controller.signal,
+        const res = await axios.get(`${primaryUrl}/health`, {
+          timeout: 3000,
+          validateStatus: () => true,
         });
-        clearTimeout(timeoutId);
 
         if (!active) return;
 
-        if (res.ok) {
+        if (res.status >= 200 && res.status < 300) {
           if (settings.companionUrl !== primaryUrl) {
             updateSettings({ companionUrl: primaryUrl });
           }
@@ -104,7 +250,9 @@ const ThemeSync = (): JSX.Element => {
   }, [isActuallyDark, accentColor, isAmoled]);
 
   useEffect(() => {
-    void i18n.changeLanguage(settings.language?.startsWith("ja") ? "ja" : "en");
+    if (settings.language) {
+      void i18n.changeLanguage(settings.language);
+    }
   }, [settings.language, i18n]);
 
   useEffect(() => {
@@ -244,6 +392,7 @@ const ThemeSync = (): JSX.Element => {
   return (
     <FluentProvider theme={v9Theme}>
       {isOnline ? <AppRoutes /> : <OfflineView />}
+      <ExternalLinkGuard />
       <AppToaster />
     </FluentProvider>
   );

@@ -1,5 +1,27 @@
+import { filterAndSortVideoItems, mergeTrendingAndSubscriptionItems, type ProcessableVideoItem } from "./videoProcessing";
+
 let worker: Worker | null = null;
 let isWorkerBroken = false;
+const pendingMessages = new Map<string, (result: unknown) => void>();
+
+const handleWorkerMessage = (e: MessageEvent): void => {
+  const resolver = pendingMessages.get(e.data?.messageId);
+  if (!resolver) return;
+  pendingMessages.delete(e.data.messageId);
+  resolver(e.data.result);
+};
+
+const disableWorker = (): void => {
+  isWorkerBroken = true;
+  pendingMessages.clear();
+  try {
+    worker?.removeEventListener("message", handleWorkerMessage);
+    worker?.terminate();
+  } catch {
+    // ignore
+  }
+  worker = null;
+};
 
 const initWorker = () => {
   try {
@@ -9,15 +31,10 @@ const initWorker = () => {
         new URL("../workers/dataProcessor.worker.ts", import.meta.url),
         { type: "module" }
       );
+      worker.addEventListener("message", handleWorkerMessage);
       worker.onerror = (err) => {
         console.error("Web Worker runtime error. Disabling worker and falling back to main thread.", err);
-        isWorkerBroken = true;
-        try {
-          worker?.terminate();
-        } catch {
-          // ignore
-        }
-        worker = null;
+        disableWorker();
       };
     }
   } catch (e) {
@@ -28,65 +45,15 @@ const initWorker = () => {
 
 initWorker();
 
-// メインスレッド用の完全に等価なフォールバック関数
-const filterAndSortFallback = (
-  videos: any[],
-  query: string,
-  sortBy: string,
-  sortOrder: "asc" | "desc"
-): any[] => {
-  if (!Array.isArray(videos)) return [];
-  let result = [...videos];
-
-  const seen = new Set<string>();
-  result = result.filter((v) => {
-    const id = v.videoId || v.playlistId;
-    if (!id) return true;
-    if (seen.has(id)) return false;
-    seen.add(id);
-    return true;
-  });
-
-  if (query) {
-    const q = query.toLowerCase();
-    result = result.filter(
-      (v) =>
-        v.title?.toLowerCase().includes(q) ||
-        v.author?.toLowerCase().includes(q)
-    );
-  }
-
-  if (sortBy === "date") {
-    result.sort((a, b) => {
-      const timeA = a.published ?? a.watchedAt ?? 0;
-      const timeB = b.published ?? b.watchedAt ?? 0;
-      return sortOrder === "desc" ? timeB - timeA : timeA - timeB;
-    });
-  } else if (sortBy === "views") {
-    result.sort((a, b) => {
-      const viewsA = a.viewCount ?? 0;
-      const viewsB = b.viewCount ?? 0;
-      return sortOrder === "desc" ? viewsB - viewsA : viewsA - viewsB;
-    });
-  } else if (sortBy === "duration") {
-    result.sort((a, b) => {
-      const durA = a.lengthSeconds ?? 0;
-      const durB = b.lengthSeconds ?? 0;
-      return sortOrder === "desc" ? durB - durA : durA - durB;
-    });
-  }
-
-  return result;
-};
-
 // タイムアウト付きで Worker 処理を実行するヘルパー関数
 const runInWorker = <T>(
   type: string,
-  payload: any,
+  payload: unknown,
   fallbackFn: () => T,
-  timeoutMs = 1500
+  timeoutMs = 1500,
+  shouldUseWorker = true
 ): Promise<T> => {
-  if (!worker || isWorkerBroken) {
+  if (!shouldUseWorker || !worker || isWorkerBroken) {
     return Promise.resolve(fallbackFn());
   }
 
@@ -94,26 +61,26 @@ const runInWorker = <T>(
     const messageId = Math.random().toString(36).substring(2);
     let resolved = false;
 
-    const timer = window.setTimeout(() => {
+    const finish = (value: T): void => {
       if (resolved) return;
       resolved = true;
-      console.warn(`Web Worker timeout (${timeoutMs}ms) for type: ${type}. Falling back to main thread.`);
-      worker?.removeEventListener("message", handleMessage);
-      resolve(fallbackFn());
-    }, timeoutMs);
-
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data.messageId === messageId) {
-        if (resolved) return;
-        resolved = true;
-        window.clearTimeout(timer);
-        worker?.removeEventListener("message", handleMessage);
-        resolve(e.data.result);
-      }
+      window.clearTimeout(timer);
+      pendingMessages.delete(messageId);
+      resolve(value);
     };
 
-    worker?.addEventListener("message", handleMessage);
-    worker?.postMessage({ messageId, type, payload });
+    const timer = window.setTimeout(() => {
+      console.warn(`Web Worker timeout (${timeoutMs}ms) for type: ${type}. Falling back to main thread.`);
+      finish(fallbackFn());
+    }, timeoutMs);
+
+    try {
+      pendingMessages.set(messageId, (result) => finish(result as T));
+      worker?.postMessage({ messageId, type, payload });
+    } catch (error) {
+      console.warn(`Web Worker postMessage failed for type: ${type}. Falling back to main thread.`, error);
+      finish(fallbackFn());
+    }
   });
 };
 
@@ -121,48 +88,20 @@ const runInWorker = <T>(
  * 動画リストの重複排除、フィルタリング、ソート処理をバックグラウンドスレッド (Web Worker) で非同期に実行します。
  * Web Worker が非対応な古いブラウザやロードエラー時は、自動的にメインスレッドでフォールバック実行され、UIを破壊しません。
  */
-export const filterAndSortVideos = (
-  videos: any[],
+export const filterAndSortVideos = <T extends ProcessableVideoItem>(
+  videos: T[],
   query: string = "",
   sortBy: "date" | "views" | "duration" | "none" = "none",
   sortOrder: "asc" | "desc" = "desc"
-): Promise<any[]> => {
+): Promise<T[]> => {
+  const shouldUseWorker = videos.length >= 80;
   return runInWorker(
     "filterAndSort",
     { videos, query, sortBy, sortOrder },
-    () => filterAndSortFallback(videos, query, sortBy, sortOrder)
+    () => filterAndSortVideoItems(videos, query, sortBy, sortOrder),
+    1500,
+    shouldUseWorker
   );
-};
-
-// メインスレッド用の完全に等価なフォールバック関数（TrendingとSubscribedのマージ用）
-const mergeTrendingAndSubscriptionsFallback = (
-  trendingVideos: any[],
-  subscribedVideos: any[]
-): any[] => {
-  const filterOutLive = (videos: any): any[] =>
-    Array.isArray(videos) ? videos.filter((item) => item && !item.liveNow && !item.isUpcoming) : [];
-
-  const trendingItems = filterOutLive(trendingVideos);
-  const subscribedItems = filterOutLive(subscribedVideos);
-
-  const seen = new Set<string>();
-  const merged: any[] = [];
-  const maxLength = Math.max(trendingItems.length, subscribedItems.length);
-
-  for (let i = 0; i < maxLength; i += 1) {
-    const fromSubscribed = subscribedItems[i];
-    if (fromSubscribed && !seen.has(fromSubscribed.videoId)) {
-      seen.add(fromSubscribed.videoId);
-      merged.push(fromSubscribed);
-    }
-    const fromTrending = trendingItems[i];
-    if (fromTrending && !seen.has(fromTrending.videoId)) {
-      seen.add(fromTrending.videoId);
-      merged.push(fromTrending);
-    }
-  }
-
-  return merged;
 };
 
 /**
@@ -170,14 +109,17 @@ const mergeTrendingAndSubscriptionsFallback = (
  * バックグラウンドスレッド (Web Worker) で実行します。
  * Worker が無効な環境では自動的にメインスレッドでフォールバックされます。
  */
-export const mergeTrendingAndSubscriptions = (
-  trendingVideos: any[],
-  subscribedVideos: any[]
-): Promise<any[]> => {
+export const mergeTrendingAndSubscriptions = <T extends ProcessableVideoItem>(
+  trendingVideos: T[],
+  subscribedVideos: T[]
+): Promise<T[]> => {
+  const shouldUseWorker = trendingVideos.length + subscribedVideos.length >= 80;
   return runInWorker(
     "mergeTrendingAndSubscriptions",
     { trendingVideos, subscribedVideos },
-    () => mergeTrendingAndSubscriptionsFallback(trendingVideos, subscribedVideos)
+    () => mergeTrendingAndSubscriptionItems(trendingVideos, subscribedVideos),
+    1500,
+    shouldUseWorker
   );
 };
 

@@ -11,6 +11,7 @@ import { MobileHeader } from "./mobile/MobileHeader";
 import { MobileSearchOverlay } from "./mobile/MobileSearchOverlay";
 import { useMiniPlayer, useSettings } from "../hooks/useSettings";
 import { resolveAccentColor } from "../accentColor";
+import { getStorageString, removeStorageValue, setStorageString } from "../lib/browserStorage";
 
 const useStyles = makeStyles({
   root: {
@@ -105,6 +106,46 @@ const useStyles = makeStyles({
       animation: "none",
     },
   },
+  pageTransitionWrapperBase: {
+    width: "100%",
+    minHeight: "100%",
+    animationDuration: "350ms",
+    animationTimingFunction: "cubic-bezier(0.16, 1, 0.3, 1)",
+    animationFillMode: "both",
+    willChange: "transform, opacity",
+    "@media (prefers-reduced-motion: reduce)": {
+      animation: "none",
+    },
+  },
+  pageTransitionWrapperFromBottom: {
+    animationName: {
+      from: {
+        opacity: 0,
+        transform: "translate3d(0, 16px, 0)",
+      },
+      to: {
+        opacity: 1,
+        transform: "translate3d(0, 0, 0)",
+      },
+    },
+  },
+  pageTransitionWrapperFromTop: {
+    animationName: {
+      from: {
+        opacity: 0,
+        transform: "translate3d(0, -16px, 0)",
+      },
+      to: {
+        opacity: 1,
+        transform: "translate3d(0, 0, 0)",
+      },
+    },
+  },
+  pageTransitionWrapperNoAnimation: {
+    animation: "none",
+    transform: "none",
+    opacity: 1,
+  },
 });
 
 export const AppShell = (): JSX.Element => {
@@ -132,6 +173,7 @@ export const AppShell = (): JSX.Element => {
   const previousPathnameRef = useRef(location.pathname);
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [useTopEntryTransition, setUseTopEntryTransition] = useState(false);
   const pullDistanceRef = useRef(0);
   const isRefreshingRef = useRef(false);
 
@@ -144,23 +186,26 @@ export const AppShell = (): JSX.Element => {
   }, [isRefreshing]);
 
   const queryClient = useQueryClient();
-  const [isMainPlayerPlaying, setIsMainPlayerPlaying] = useState(false);
-
   useEffect(() => {
-    if (location.pathname.startsWith("/watch/") || location.pathname.startsWith("/tv/watch/")) {
-      setIsMainPlayerPlaying(false);
+    const isWatch = location.pathname.startsWith("/watch/") || location.pathname.startsWith("/tv/watch/");
+    if (!isWatch) {
+      setStorageString("session", "lastNonWatchPath", location.pathname + location.search);
     }
-  }, [location.pathname]);
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
-    const handleMainPlayerPlaying = () => {
-      setIsMainPlayerPlaying(true);
-    };
-    window.addEventListener("inverview:main-player-playing", handleMainPlayerPlaying);
-    return () => {
-      window.removeEventListener("inverview:main-player-playing", handleMainPlayerPlaying);
-    };
-  }, []);
+    const shouldUseTopEntry = getStorageString("session", "inverview:return-from-watch-minimize") === "1";
+    if (!shouldUseTopEntry) {
+      setUseTopEntryTransition(false);
+      return;
+    }
+    removeStorageValue("session", "inverview:return-from-watch-minimize");
+    setStorageString("session", "inverview:suppress-next-page-secondary-animation", "1");
+    // Returning from watch -> mini can stack multiple "from top" effects.
+    // Keep shell transition off for this navigation to avoid double animation.
+    setUseTopEntryTransition(false);
+    return;
+  }, [location.pathname, location.search]);
 
   const isMobile = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -447,6 +492,7 @@ export const AppShell = (): JSX.Element => {
         <main
           id="app-scroll-container"
           ref={mainContentRef}
+          data-watch-route={isWatchRoute ? "true" : "false"}
           className={mergeClasses(
             styles.mainContent,
             isWatchRoute && styles.mobileWatchMainContent,
@@ -457,27 +503,34 @@ export const AppShell = (): JSX.Element => {
             id="app-scroll-content"
             className={mergeClasses(styles.mainContentInner, isTvWatchRoute && styles.tvWatchMainContentInner)}
           >
-            <div key={location.pathname} className={styles.pageTransitionWrapper}>
+            <div
+              key={location.pathname}
+              className={mergeClasses(
+                styles.pageTransitionWrapperBase,
+                !(isWatchRoute || isTvWatchRoute) && (
+                  useTopEntryTransition ? styles.pageTransitionWrapperFromTop : styles.pageTransitionWrapperFromBottom
+                ),
+                (isWatchRoute || isTvWatchRoute) && styles.pageTransitionWrapperNoAnimation,
+              )}
+            >
               <Outlet />
             </div>
           </div>
         </main>
       </div>
 
-      {settings.miniPlayer && miniPlayer?.visible && (!location.pathname.startsWith("/watch/") || !isMainPlayerPlaying) && !isTvRoute && (
-        <div style={location.pathname.startsWith("/watch/") ? { opacity: 0, pointerEvents: "none", position: "absolute", zIndex: -100 } : undefined}>
-          <MiniPlayer
-            state={miniPlayer}
-            onPositionChange={(seconds) => {
-              setMiniPlayer({ ...miniPlayer, positionSeconds: seconds });
-            }}
-            onMove={(x, y) => {
-              setMiniPlayer({ ...miniPlayer, x, y });
-            }}
-            onExpand={() => navigate(`/watch/${miniPlayer.videoId}?autoplay=1`)}
-            onClose={() => setMiniPlayer(null)}
-          />
-        </div>
+      {settings.miniPlayer && miniPlayer?.visible && !location.pathname.startsWith("/watch/") && !isTvRoute && (
+        <MiniPlayer
+          state={miniPlayer}
+          onPositionChange={(seconds) => {
+            setMiniPlayer({ ...miniPlayer, positionSeconds: seconds });
+          }}
+          onMove={(x, y) => {
+            setMiniPlayer({ ...miniPlayer, x, y });
+          }}
+          onExpand={() => navigate(`/watch/${miniPlayer.videoId}?autoplay=1`)}
+          onClose={() => setMiniPlayer(null)}
+        />
       )}
 
       {!isTvRoute && !isWatchRoute && <MobileBottomNav onOpenSearch={() => setIsSearchOpen(true)} />}

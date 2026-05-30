@@ -1,107 +1,18 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { SearchResultObject, VideoObject } from "../types/invidious";
 import { ChannelCard } from "./ChannelCard";
 import { HashtagCard } from "./HashtagCard";
 import { PlaylistCard } from "./PlaylistCard";
 import { VideoCard } from "./VideoCard";
+import { DeferredRenderItem } from "./DeferredRenderItem";
+import { useKeyboardNavigationMode } from "../hooks/useKeyboardNavigationMode";
 
 interface VideoGridProps {
   items: Array<VideoObject | SearchResultObject>;
   isShorts?: boolean;
   authorId?: string;
 }
-
-interface DeferredRenderItemProps {
-  children: ReactNode;
-  estimatedHeight?: number;
-  rootMargin?: string;
-  disableVirtualization?: boolean;
-}
-
-const useKeyboardNavigationMode = (): boolean => {
-  const [isKeyboardNavigating, setIsKeyboardNavigating] = useState(false);
-
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Tab") {
-        setIsKeyboardNavigating(true);
-      }
-    };
-
-    const onPointerDown = () => {
-      setIsKeyboardNavigating(false);
-    };
-
-    window.addEventListener("keydown", onKeyDown, true);
-    window.addEventListener("pointerdown", onPointerDown, true);
-
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.removeEventListener("pointerdown", onPointerDown, true);
-    };
-  }, []);
-
-  return isKeyboardNavigating;
-};
-
-const DeferredRenderItem = ({
-  children,
-  estimatedHeight = 280,
-  rootMargin = "300px 0px",
-  disableVirtualization = false,
-}: DeferredRenderItemProps): JSX.Element => {
-  const [isVisible, setIsVisible] = useState(disableVirtualization);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (disableVirtualization) {
-      setIsVisible(true);
-      return;
-    }
-
-    const target = containerRef.current;
-    if (!target) return;
-
-    if (typeof IntersectionObserver === "undefined") {
-      setIsVisible(true);
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry?.isIntersecting) {
-          setIsVisible(true);
-          observer.disconnect();
-        }
-      },
-      { rootMargin, threshold: 0.01 },
-    );
-
-    observer.observe(target);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [disableVirtualization, rootMargin]);
-
-  return (
-    <div
-      ref={containerRef}
-      style={{
-        minHeight: isVisible ? undefined : estimatedHeight,
-        contentVisibility: isVisible ? "visible" : "auto",
-        containIntrinsicSize: `${estimatedHeight}px 1px`,
-      }}
-      onFocusCapture={() => {
-        setIsVisible(true);
-      }}
-    >
-      {isVisible ? children : null}
-    </div>
-  );
-};
 
 export const VideoGrid = ({ items, isShorts, authorId }: VideoGridProps): JSX.Element => {
   const isKeyboardNavigating = useKeyboardNavigationMode();
@@ -113,7 +24,7 @@ export const VideoGrid = ({ items, isShorts, authorId }: VideoGridProps): JSX.El
     const filteredVideos: VideoObject[] = [];
     const filteredOthers: SearchResultObject[] = [];
     for (const item of items) {
-      if (item.type === "video" || item.type === "shortVideo") {
+      if (item.type === "video" || item.type === "shortVideo" || ("videoId" in item && !!item.videoId)) {
         filteredVideos.push(item as VideoObject);
       } else {
         filteredOthers.push(item as SearchResultObject);

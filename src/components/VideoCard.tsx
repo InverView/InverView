@@ -38,6 +38,7 @@ interface VideoCardProps {
   isShorts?: boolean;
   authorId?: string;
   prioritizeThumbnail?: boolean;
+  action?: React.ReactNode;
 }
 const useStyles = makeStyles({
   card: {
@@ -60,7 +61,10 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "row",
     height: "94px",
-    padding: "0",
+    paddingTop: "0px",
+    paddingRight: "0px",
+    paddingBottom: "0px",
+    paddingLeft: "0px",
     gap: "8px",
     alignItems: "flex-start",
     minWidth: 0,
@@ -138,6 +142,7 @@ const VideoCardBase = ({
   isShorts,
   authorId,
   prioritizeThumbnail = false,
+  action,
 }: VideoCardProps): JSX.Element => {
   const styles = useStyles();
   const navigate = useNavigate();
@@ -263,7 +268,7 @@ const VideoCardBase = ({
 
       {horizontal ? (
         <CardHeader
-          style={{ padding: "4px 0", minWidth: 0 }}
+          style={{ padding: "4px 0", minWidth: 0, flex: 1 }}
           header={
             <Text className={mergeClasses(styles.title, styles.horizontalTitle)} block>
               {video.title}
@@ -286,6 +291,7 @@ const VideoCardBase = ({
               </Caption1>
             </div>
           }
+          action={action}
         />
       ) : (
         <div className={styles.body}>
@@ -329,38 +335,40 @@ const VideoCardBase = ({
               </div>
             }
             action={
-              <Menu positioning="below-end">
-                <MenuTrigger disableButtonEnhancement>
-                  <Button
-                    appearance="transparent"
-                    icon={<MoreHorizontal20Regular />}
-                    aria-label="その他の操作"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                    }}
-                  />
-                </MenuTrigger>
-                <MenuPopover>
-                  <MenuList>
-                    <MenuItem
+              action || (
+                <Menu positioning="below-end">
+                  <MenuTrigger disableButtonEnhancement>
+                    <Button
+                      appearance="transparent"
+                      icon={<MoreHorizontal20Regular />}
+                      aria-label="その他の操作"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleChannelNavigate();
                       }}
-                    >
-                      チャンネルを開く
-                    </MenuItem>
-                    <MenuItem
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleNavigate();
-                      }}
-                    >
-                      動画を開く
-                    </MenuItem>
-                  </MenuList>
-                </MenuPopover>
-              </Menu>
+                    />
+                  </MenuTrigger>
+                  <MenuPopover>
+                    <MenuList>
+                      <MenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleChannelNavigate();
+                        }}
+                      >
+                        チャンネルを開く
+                      </MenuItem>
+                      <MenuItem
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleNavigate();
+                        }}
+                      >
+                        動画を開く
+                      </MenuItem>
+                    </MenuList>
+                  </MenuPopover>
+                </Menu>
+              )
             }
           />
         </div>

@@ -3,7 +3,8 @@ import {
   makeStyles,
   tokens,
   Button,
-  Select,
+  Dropdown,
+  Option,
 } from "@fluentui/react-components";
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -82,18 +83,20 @@ export const Comments = ({ videoId, initiallyExpanded = true, onTimestampClick }
       <div className={styles.header}>
         <Text weight="semibold">{t("comments.title")}</Text>
         <div className={styles.controls}>
-          <Select
-            value={sortBy}
-            onChange={(e) => {
-              const value = e.target.value === "new" ? "new" : "top";
+          <Dropdown
+            aria-label={t("common.sort")}
+            value={sortBy === "new" ? t("comments.sortNew") : t("comments.sortTop")}
+            selectedOptions={[sortBy]}
+            size="small"
+            onOptionSelect={(_, data) => {
+              const value = data.optionValue === "new" ? "new" : "top";
               setSortBy(value);
               setContinuation(undefined);
             }}
-            size="small"
           >
-            <option value="top">{t("comments.sortTop")}</option>
-            <option value="new">{t("comments.sortNew")}</option>
-          </Select>
+            <Option value="top">{t("comments.sortTop")}</Option>
+            <Option value="new">{t("comments.sortNew")}</Option>
+          </Dropdown>
           <Button size="small" appearance="outline" onClick={() => setExpanded((prev) => !prev)}>
             {expanded ? t("comments.collapse") : t("comments.expand")}
           </Button>
