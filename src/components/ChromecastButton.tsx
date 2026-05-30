@@ -1,5 +1,6 @@
 import { Button } from "@fluentui/react-components";
 import { CastRegular } from "@fluentui/react-icons";
+import axios from "axios";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { VideoDetails } from "../types/invidious";
 import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib/media";
@@ -94,9 +95,11 @@ export const ChromecastButton = ({
   const ensureTvSessionId = useCallback(async (): Promise<string> => {
     if (tvSessionId) return tvSessionId;
     try {
-      const response = await fetch("/tv-sync/session", { method: "POST" });
-      if (!response.ok) return "";
-      const data = (await response.json()) as { sessionId?: string };
+      const response = await axios.post<{ sessionId?: string }>("/tv-sync/session", undefined, {
+        validateStatus: () => true,
+      });
+      if (response.status < 200 || response.status >= 300) return "";
+      const data = response.data;
       const created = (data.sessionId || "").trim();
       if (!created) return "";
       setTvSessionId(created);

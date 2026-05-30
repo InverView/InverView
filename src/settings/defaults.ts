@@ -64,6 +64,9 @@ export const defaultSettings: AppSettings = {
 
   saveWatchHistory: true,
   showSearchSuggestions: true,
+  warnBeforeOpeningExternalLinks: true,
+  openExternalLinksInNewTab: true,
+  trustedExternalLinkDomains: [],
 
   autoplay: false,
   livePlaybackEnabled: parseEnvBoolean(import.meta.env.VITE_ENABLE_LIVE_PLAYBACK, true),
@@ -79,6 +82,7 @@ export const defaultSettings: AppSettings = {
   useProxyVideo: true,
   rememberPlaybackPosition: true,
   miniPlayer: false,
+  playerCloseButton: false,
   theaterMode: false,
   autoplayNextVideo: false,
   showCaptionsByDefault: false,
@@ -128,7 +132,6 @@ export const defaultSettings: AppSettings = {
   lastFmTrimDashTags: true,
   volume: 1,
   muted: false,
-  favoriteShortsChannelIds: [],
   hideShorts: false,
   hideMobileNavLabels: false,
 };

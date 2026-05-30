@@ -1,9 +1,13 @@
+import { format as formatDateFns, formatDistanceToNowStrict } from "date-fns";
+import { enUS, ja } from "date-fns/locale";
 import { getSettingsSnapshot } from "../settings/storage";
 import i18n from "../i18n";
+import { unixSecondsToDate } from "./time";
 
 const isJapanese = (): boolean => getSettingsSnapshot().language?.startsWith("ja") ?? true;
 
 const getNumberLocale = (): string => (isJapanese() ? "ja-JP" : "en-US");
+const getDateFnsLocale = () => (isJapanese() ? ja : enUS);
 
 export const formatDuration = (seconds?: number): string => {
   if (!seconds || Number.isNaN(seconds)) return "--:--";
@@ -34,20 +38,15 @@ export const formatNumberJa = (value?: number): string => {
 export const formatRelativeDateJa = (unixSeconds?: number, fallbackText?: string): string => {
   if (fallbackText) return fallbackText;
   if (!unixSeconds) return i18n.t("common.unknownDate");
-
-  const now = Math.floor(Date.now() / 1000);
-  const diff = Math.max(0, now - unixSeconds);
-
-  if (diff < 60) return i18n.t("common.justNow");
-  if (diff < 3600) return i18n.t("common.minutesAgo", { count: Math.floor(diff / 60) });
-  if (diff < 86400) return i18n.t("common.hoursAgo", { count: Math.floor(diff / 3600) });
-  if (diff < 2592000) return i18n.t("common.daysAgo", { count: Math.floor(diff / 86400) });
-  if (diff < 31536000) return i18n.t("common.monthsAgo", { count: Math.floor(diff / 2592000) });
-  return i18n.t("common.yearsAgo", { count: Math.floor(diff / 31536000) });
+  return formatDistanceToNowStrict(unixSecondsToDate(unixSeconds), {
+    addSuffix: true,
+    locale: getDateFnsLocale(),
+  });
 };
 
 export const formatDateJa = (unixSeconds?: number): string => {
   if (!unixSeconds) return i18n.t("common.unknownDate");
-  const date = new Date(unixSeconds * 1000);
-  return new Intl.DateTimeFormat(getNumberLocale(), { dateStyle: "medium" }).format(date);
+  return formatDateFns(unixSecondsToDate(unixSeconds), isJapanese() ? "PPP" : "PP", {
+    locale: getDateFnsLocale(),
+  });
 };

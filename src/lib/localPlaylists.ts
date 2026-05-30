@@ -1,5 +1,9 @@
+import { nanoid } from "nanoid";
+import { z } from "zod";
 import { getCurrentLocalUser } from "./localUsers";
 import type { PlaylistObject, PlaylistVideoObject, ThumbnailObject } from "../types/invidious";
+import { getStorageJson, setStorageJson } from "./browserStorage";
+import { nowMs } from "./time";
 
 const LOCAL_PLAYLISTS_KEY = "invidious-local-playlists-v1";
 
@@ -13,20 +17,22 @@ interface LocalPlaylistRecord {
 }
 
 type LocalPlaylistsMap = Record<string, LocalPlaylistRecord[]>;
+const localPlaylistRecordSchema = z.object({
+  playlistId: z.string(),
+  title: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  videos: z.array(z.any()),
+  playlistThumbnail: z.string().optional(),
+});
+const localPlaylistsMapSchema = z.record(z.string(), z.array(localPlaylistRecordSchema));
 
 const readMap = (): LocalPlaylistsMap => {
-  try {
-    const raw = localStorage.getItem(LOCAL_PLAYLISTS_KEY);
-    if (!raw) return {};
-    const parsed = JSON.parse(raw) as LocalPlaylistsMap;
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch {
-    return {};
-  }
+  return getStorageJson("local", LOCAL_PLAYLISTS_KEY, localPlaylistsMapSchema, {});
 };
 
 const writeMap = (value: LocalPlaylistsMap): void => {
-  localStorage.setItem(LOCAL_PLAYLISTS_KEY, JSON.stringify(value));
+  setStorageJson("local", LOCAL_PLAYLISTS_KEY, value);
 };
 
 const toPlaylistObject = (record: LocalPlaylistRecord, authorName: string): PlaylistObject => ({
@@ -64,11 +70,12 @@ export const createLocalPlaylist = (title: string): PlaylistObject => {
   const trimmed = title.trim() || "新しいプレイリスト";
   const { userId, authorName, records } = getUserRecords();
   const map = readMap();
+  const timestamp = nowMs();
   const next: LocalPlaylistRecord = {
-    playlistId: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    playlistId: `local-${nanoid(10)}`,
     title: trimmed,
-    createdAt: Date.now(),
-    updatedAt: Date.now(),
+    createdAt: timestamp,
+    updatedAt: timestamp,
     videos: [],
   };
   map[userId] = [next, ...records];
@@ -90,10 +97,11 @@ export const addVideoToLocalPlaylist = (
 ): void => {
   const { userId, records } = getUserRecords();
   const map = readMap();
+  const timestamp = nowMs();
   const nextRecords = records.map((record) => {
     if (record.playlistId !== playlistId) return record;
     if (record.videos.some((item) => item.videoId === video.videoId)) {
-      return { ...record, updatedAt: Date.now() };
+      return { ...record, updatedAt: timestamp };
     }
     const thumbnails = Array.isArray(video.thumbnails) && video.thumbnails.length > 0
       ? video.thumbnails
@@ -112,7 +120,7 @@ export const addVideoToLocalPlaylist = (
       ...record,
       videos: [...record.videos, newItem],
       playlistThumbnail: record.playlistThumbnail || thumbnails[0]?.url,
-      updatedAt: Date.now(),
+      updatedAt: timestamp,
     };
   });
   map[userId] = nextRecords;

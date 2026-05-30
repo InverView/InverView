@@ -2,6 +2,8 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import proxy from "@fastify/http-proxy";
 import { randomUUID } from "node:crypto";
+import axios from "axios";
+import { getTime } from "date-fns";
 
 export type ProxyServerConfig = {
   companionUrl: string;
@@ -24,13 +26,14 @@ type TvSession = {
 };
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 6;
+const nowMs = (): number => getTime(new Date());
 
 export const createProxyServer = (config: ProxyServerConfig): FastifyInstance => {
   const fastify = Fastify({ logger: true });
   const tvSessions = new Map<string, TvSession>();
 
   const cleanupExpiredSessions = () => {
-    const now = Date.now();
+    const now = nowMs();
     for (const [sessionId, session] of tvSessions.entries()) {
       if (now - session.updatedAt > SESSION_TTL_MS) {
         tvSessions.delete(sessionId);
@@ -41,7 +44,7 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
   const createTvSession = () => {
     cleanupExpiredSessions();
     const sessionId = randomUUID();
-    const now = Date.now();
+    const now = nowMs();
     const session: TvSession = {
       id: sessionId,
       createdAt: now,
@@ -89,15 +92,15 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
     }
     if (parsed.protocol !== "https:") return reply.code(400).send({ error: "https_only" });
 
-    const buildForwardBody = (): BodyInit | undefined => {
+    const buildForwardBody = (): unknown => {
       if (request.method === "GET" || request.method === "HEAD") return undefined;
       const body = request.body as unknown;
       if (body == null) return undefined;
-      if (typeof body === "string" || body instanceof Uint8Array || body instanceof ArrayBuffer) return body as BodyInit;
+      if (typeof body === "string" || body instanceof Uint8Array || body instanceof ArrayBuffer) return body;
       return JSON.stringify(body);
     };
 
-    const reqHeaders = new Headers();
+    const reqHeaders: Record<string, string> = {};
     const proxyCookie = typeof request.headers["x-ytjs-cookie"] === "string"
       ? request.headers["x-ytjs-cookie"].trim()
       : "";
@@ -117,26 +120,29 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
         lower === "x-ytjs-cookie"
       ) continue;
       if (Array.isArray(value)) {
-        reqHeaders.set(key, value.join(", "));
+        reqHeaders[key] = value.join(", ");
       } else {
-        reqHeaders.set(key, value);
+        reqHeaders[key] = value;
       }
     }
-    if (proxyCookie) reqHeaders.set("cookie", proxyCookie);
+    if (proxyCookie) reqHeaders.cookie = proxyCookie;
 
-    let upstreamResponse: Response;
+    let upstreamResponse: Awaited<ReturnType<typeof axios.request<ArrayBuffer>>>;
     try {
-      upstreamResponse = await fetch(parsed, {
+      upstreamResponse = await axios.request<ArrayBuffer>({
+        url: parsed.toString(),
         method: request.method,
         headers: reqHeaders,
-        body: buildForwardBody(),
+        data: buildForwardBody(),
+        responseType: "arraybuffer",
+        validateStatus: () => true,
       });
     } catch (error) {
       request.log.error(error);
       return reply.code(502).send({ error: "upstream_fetch_failed" });
     }
 
-    for (const [key, value] of upstreamResponse.headers.entries()) {
+    for (const [key, value] of Object.entries(upstreamResponse.headers)) {
       const lower = key.toLowerCase();
       if (
         lower === "connection" ||
@@ -149,10 +155,10 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
         lower === "upgrade" ||
         lower === "content-length"
       ) continue;
-      reply.header(key, value);
+      if (value !== undefined) reply.header(key, Array.isArray(value) ? value.join(", ") : String(value));
     }
     reply.code(upstreamResponse.status);
-    const bodyBuffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    const bodyBuffer = Buffer.from(upstreamResponse.data);
     return reply.send(bodyBuffer);
   });
 
@@ -171,9 +177,9 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
       const videoId = (request.body?.videoId || "").trim();
       if (!videoId) return reply.code(400).send({ error: "video_id_required" });
 
-      const command: TvCommand = { id: randomUUID(), videoId, sentAt: Date.now() };
+      const command: TvCommand = { id: randomUUID(), videoId, sentAt: nowMs() };
       session.lastCommand = command;
-      session.updatedAt = Date.now();
+      session.updatedAt = nowMs();
       return { ok: true, commandId: command.id };
     },
   );

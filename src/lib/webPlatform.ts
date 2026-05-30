@@ -1,3 +1,5 @@
+import { z } from "zod";
+import { getStorageJson } from "./browserStorage";
 import { enterNativePictureInPicture } from "./nativePlayback";
 import { hapticImpactInCapacitor, openExternalInCapacitor } from "./capacitorSpecial";
 
@@ -8,6 +10,9 @@ export interface SharePayload {
 }
 
 let recentlyHandledPopState = false;
+const pipSettingsSchema = z.object({
+  pictureInPictureEnabled: z.boolean().optional(),
+}).passthrough();
 if (typeof window !== "undefined") {
   window.addEventListener("popstate", () => {
     recentlyHandledPopState = true;
@@ -34,15 +39,8 @@ export const findActiveVideoElement = (): HTMLVideoElement | null => {
 };
 
 export const togglePictureInPicture = async (videoElement?: HTMLVideoElement | null): Promise<boolean> => {
-  try {
-    const raw = localStorage.getItem("invidious-client-settings");
-    if (raw) {
-      const parsed = JSON.parse(raw) as { pictureInPictureEnabled?: boolean };
-      if (parsed.pictureInPictureEnabled === false) return false;
-    }
-  } catch {
-    // ignore localStorage parse errors
-  }
+  const parsed = getStorageJson("local", "invidious-client-settings", pipSettingsSchema, {});
+  if (parsed.pictureInPictureEnabled === false) return false;
 
   if (!canUsePictureInPictureApi()) {
     return enterNativePictureInPicture();

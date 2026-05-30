@@ -13,7 +13,7 @@ import {
 } from "@fluentui/react-components";
 import DOMPurify from "dompurify";
 import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 import { ChannelCard } from "../components/ChannelCard";
 import { EmptyState } from "../components/EmptyState";
@@ -41,6 +41,7 @@ import { useSettingsStore } from "../store/settingsStore";
 import { useTranslation } from "react-i18next";
 import { notifyError } from "../lib/notifications";
 import { getYouTubeChannelVideos } from "../lib/youtubeJsData";
+import type { VideoObject } from "../types/invidious";
 
 const useStyles = makeStyles({
   container: {
@@ -68,6 +69,39 @@ const useStyles = makeStyles({
       gap: "16px",
       alignItems: "start",
     },
+  },
+  mobileHeader: {
+    display: "none",
+    "@media (max-width: 767px)": {
+      display: "flex",
+      gap: "16px",
+      alignItems: "start",
+      padding: "8px 4px",
+    },
+  },
+  mobileAvatar: {
+    flexShrink: 0,
+  },
+  mobileHeaderInfo: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    minWidth: 0,
+    flex: 1,
+    textAlign: "left",
+  },
+  mobileTitle: {
+    lineHeight: "22px",
+    wordBreak: "break-word",
+  },
+  mobileHandle: {
+    color: tokens.colorNeutralForeground3,
+  },
+  mobileSubscribers: {
+    color: tokens.colorNeutralForeground3,
+  },
+  mobileSubscribeBtnArea: {
+    marginTop: "8px",
   },
   headerInfo: {
     display: "flex",
@@ -139,6 +173,38 @@ const useStyles = makeStyles({
 
 const INFINITE_QUERY_GC_TIME_MS = 60_000;
 
+const normalizeChannelVideoItems = (
+  items: unknown[],
+  type: "video" | "shortVideo" = "video",
+): VideoObject[] => {
+  return items
+    .map((item) => {
+      if (!item || typeof item !== "object") return null;
+      const record = item as Record<string, unknown>;
+      const videoId = typeof record.videoId === "string"
+        ? record.videoId.trim()
+        : typeof record.playlistId === "string" && record.playlistId.trim().length === 11
+          ? record.playlistId.trim()
+          : "";
+
+      if (!videoId) return null;
+
+      const videoThumbnails = Array.isArray(record.videoThumbnails)
+        ? record.videoThumbnails
+        : typeof record.playlistThumbnail === "string"
+          ? [{ quality: "medium", url: record.playlistThumbnail, width: 320, height: 180 }]
+          : [];
+
+      return {
+        ...record,
+        type,
+        videoId,
+        videoThumbnails,
+      } as VideoObject;
+    })
+    .filter((item): item is VideoObject => item !== null);
+};
+
 export const ChannelPage = (): JSX.Element => {
   const styles = useStyles();
   const { t } = useTranslation();
@@ -149,6 +215,16 @@ export const ChannelPage = (): JSX.Element => {
   const token = useSettingsStore((state) => state.token);
   const [showFullDescription, setShowFullDescription] = useState(false);
   const [sortBy, setSortBy] = useState<"newest" | "popular" | "oldest">("newest");
+
+  // Scroll to top of container when entering a channel page
+  useEffect(() => {
+    const el = document.getElementById("app-scroll-container");
+    if (el) {
+      el.scrollTo({ top: 0, behavior: "instant" });
+    } else {
+      window.scrollTo({ top: 0, behavior: "instant" });
+    }
+  }, [authorId]);
 
   const subscribedQuery = useQuery({
     queryKey: [...queryKeys.authSubscriptions, authorId, "status"],
@@ -209,7 +285,13 @@ export const ChannelPage = (): JSX.Element => {
     gcTime: INFINITE_QUERY_GC_TIME_MS,
   });
 
-  const videoListItems = useMemo(() => videoListQuery.data?.pages.flatMap((page) => page.videos ?? []) ?? [], [videoListQuery.data]);
+  const videoListItems = useMemo(
+    () =>
+      videoListQuery.data?.pages.flatMap((page) =>
+        normalizeChannelVideoItems(page.videos ?? [], currentTab === "shorts" ? "shortVideo" : "video"),
+      ) ?? [],
+    [currentTab, videoListQuery.data],
+  );
 
   if (!authorId) return <EmptyState title={t("channelPage.noChannelIdTitle")} description={t("channelPage.noChannelIdDescription")} />;
   if (channelQuery.isLoading) return <ChannelPageSkeleton />;
@@ -358,6 +440,12 @@ export const ChannelPage = (): JSX.Element => {
     </div>
   );
 
+  const handleName = (channel as any).handle
+    ? (channel as any).handle
+    : ((channel as any).username
+        ? `@${(channel as any).username}`
+        : `@${channel.author.replace(/[^a-zA-Z0-9]/g, "").toLowerCase() || "channel"}`);
+
   return (
     <div className={styles.container}>
       {banner?.url ? (
@@ -375,7 +463,11 @@ export const ChannelPage = (): JSX.Element => {
         />
         <div className={styles.headerInfo}>
           <Text size={600} weight="bold">{channel.author}</Text>
-          <Text style={{ color: tokens.colorNeutralForeground3 }}>{t("channelPage.subscribers", { count: formatNumberJa(channel.subCount) })}</Text>
+          <Text style={{ color: tokens.colorNeutralForeground3 }} size={200}>{handleName}</Text>
+          <Text style={{ color: tokens.colorNeutralForeground3 }} size={200}>
+            {t("channelPage.subscribers", { count: formatNumberJa(channel.subCount) })}
+            {(channel as any).videoCount !== undefined && ` ・ ${(channel as any).videoCount} 本の動画`}
+          </Text>
           <div style={{ marginTop: "8px" }}>
             <Button appearance={isSubscribed ? "outline" : "primary"} size="small" onClick={() => void toggleSubscribe()}>
               {isSubscribed ? t("channelPage.unsubscribe") : t("channelPage.subscribe")}
@@ -384,18 +476,34 @@ export const ChannelPage = (): JSX.Element => {
         </div>
       </div>
 
-      <div style={{ display: "none" }} className="mobile-only-header">
-        <MobileChannelHeader
-          authorId={authorId}
-          author={channel.author}
-          avatarSrc={resolveMediaUrl(avatar?.url, baseUrl)}
-          subCount={channel.subCount}
+      <div className={styles.mobileHeader}>
+        <Avatar
+          image={{ src: resolveMediaUrl(avatar?.url, baseUrl) }}
+          name={channel.author}
+          size={72}
+          className={styles.mobileAvatar}
         />
-        <style>{`
-          @media (max-width: 767px) {
-            .mobile-only-header { display: block !important; }
-          }
-        `}</style>
+        <div className={styles.mobileHeaderInfo}>
+          <Text size={500} weight="bold" className={styles.mobileTitle}>
+            {channel.author}
+          </Text>
+          <Text size={200} className={styles.mobileHandle}>
+            {handleName}
+          </Text>
+          <Text size={100} className={styles.mobileSubscribers}>
+            {t("channelPage.subscribers", { count: formatNumberJa(channel.subCount) })}
+            {(channel as any).videoCount !== undefined && ` ・ ${(channel as any).videoCount} 本の動画`}
+          </Text>
+          <div className={styles.mobileSubscribeBtnArea}>
+            <Button
+              appearance={isSubscribed ? "outline" : "primary"}
+              size="small"
+              onClick={() => void toggleSubscribe()}
+            >
+              {isSubscribed ? t("channelPage.unsubscribe") : t("channelPage.subscribe")}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <div className={styles.tabArea}>

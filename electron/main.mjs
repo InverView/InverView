@@ -5,6 +5,8 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import proxy from "@fastify/http-proxy";
 import { randomUUID } from "node:crypto";
+import axios from "axios";
+import { getTime } from "date-fns";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -46,9 +48,10 @@ let proxyServer = null;
 /** @type {Map<string, { id:string, createdAt:number, updatedAt:number, lastCommand: null | { id:string, videoId:string, sentAt:number } }>} */
 const tvSessions = new Map();
 const SESSION_TTL_MS = 1000 * 60 * 60 * 6;
+const nowMs = () => getTime(new Date());
 
 const cleanupExpiredSessions = () => {
-  const now = Date.now();
+  const now = nowMs();
   for (const [sessionId, session] of tvSessions.entries()) {
     if (now - session.updatedAt > SESSION_TTL_MS) {
       tvSessions.delete(sessionId);
@@ -59,7 +62,7 @@ const cleanupExpiredSessions = () => {
 const createTvSession = () => {
   cleanupExpiredSessions();
   const sessionId = randomUUID();
-  const now = Date.now();
+  const now = nowMs();
   tvSessions.set(sessionId, {
     id: sessionId,
     createdAt: now,
@@ -116,7 +119,7 @@ const startEmbeddedProxy = async () => {
       return JSON.stringify(body);
     };
 
-    const reqHeaders = new Headers();
+    const reqHeaders = {};
     const proxyCookie = typeof request.headers?.["x-ytjs-cookie"] === "string"
       ? request.headers["x-ytjs-cookie"].trim()
       : "";
@@ -136,26 +139,29 @@ const startEmbeddedProxy = async () => {
         lower === "x-ytjs-cookie"
       ) continue;
       if (Array.isArray(value)) {
-        reqHeaders.set(key, value.join(", "));
+        reqHeaders[key] = value.join(", ");
       } else {
-        reqHeaders.set(key, value);
+        reqHeaders[key] = value;
       }
     }
-    if (proxyCookie) reqHeaders.set("cookie", proxyCookie);
+    if (proxyCookie) reqHeaders.cookie = proxyCookie;
 
     let upstreamResponse;
     try {
-      upstreamResponse = await fetch(parsed, {
+      upstreamResponse = await axios.request({
+        url: parsed.toString(),
         method: request.method,
         headers: reqHeaders,
-        body: buildForwardBody(),
+        data: buildForwardBody(),
+        responseType: "arraybuffer",
+        validateStatus: () => true,
       });
     } catch (error) {
       fastify.log.error(error);
       return reply.code(502).send({ error: "upstream_fetch_failed" });
     }
 
-    for (const [key, value] of upstreamResponse.headers.entries()) {
+    for (const [key, value] of Object.entries(upstreamResponse.headers)) {
       const lower = key.toLowerCase();
       if (
         lower === "connection" ||
@@ -168,10 +174,10 @@ const startEmbeddedProxy = async () => {
         lower === "upgrade" ||
         lower === "content-length"
       ) continue;
-      reply.header(key, value);
+      if (value !== undefined) reply.header(key, Array.isArray(value) ? value.join(", ") : String(value));
     }
     reply.code(upstreamResponse.status);
-    const bodyBuffer = Buffer.from(await upstreamResponse.arrayBuffer());
+    const bodyBuffer = Buffer.from(upstreamResponse.data);
     return reply.send(bodyBuffer);
   });
 
@@ -187,9 +193,9 @@ const startEmbeddedProxy = async () => {
     const videoId = String(request.body?.videoId || "").trim();
     if (!videoId) return reply.code(400).send({ error: "video_id_required" });
 
-    const command = { id: randomUUID(), videoId, sentAt: Date.now() };
+    const command = { id: randomUUID(), videoId, sentAt: nowMs() };
     session.lastCommand = command;
-    session.updatedAt = Date.now();
+    session.updatedAt = nowMs();
     return { ok: true, commandId: command.id };
   });
 

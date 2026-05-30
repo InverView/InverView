@@ -1,3 +1,8 @@
+import { nanoid } from "nanoid";
+import { z } from "zod";
+import { getStorageJson, getStorageString, setStorageJson, setStorageString } from "./browserStorage";
+import { nowMs } from "./time";
+
 export interface LocalUser {
   id: string;
   name: string;
@@ -6,27 +11,26 @@ export interface LocalUser {
 
 const USERS_KEY = "invidious-local-users-v1";
 const CURRENT_USER_KEY = "invidious-local-current-user-id-v1";
+const localUserSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  createdAt: z.number().optional().default(0),
+});
+const localUsersSchema = z.array(localUserSchema);
 
 const createDefaultUser = (): LocalUser => ({
   id: "local-default",
   name: "ローカルユーザー",
-  createdAt: Date.now(),
+  createdAt: nowMs(),
 });
 
 const readUsers = (): LocalUser[] => {
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (!raw) return [createDefaultUser()];
-    const parsed = JSON.parse(raw) as LocalUser[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return [createDefaultUser()];
-    return parsed.filter((user) => user?.id && user?.name);
-  } catch {
-    return [createDefaultUser()];
-  }
+  const users = getStorageJson("local", USERS_KEY, localUsersSchema, []);
+  return users.length > 0 ? users : [createDefaultUser()];
 };
 
 const writeUsers = (users: LocalUser[]): void => {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
+  setStorageJson("local", USERS_KEY, users);
 };
 
 export const getLocalUsers = (): LocalUser[] => {
@@ -37,28 +41,28 @@ export const getLocalUsers = (): LocalUser[] => {
 
 export const getCurrentLocalUser = (): LocalUser => {
   const users = getLocalUsers();
-  const currentUserId = localStorage.getItem(CURRENT_USER_KEY);
+  const currentUserId = getStorageString("local", CURRENT_USER_KEY);
   const current = users.find((user) => user.id === currentUserId) ?? users[0];
-  localStorage.setItem(CURRENT_USER_KEY, current.id);
+  setStorageString("local", CURRENT_USER_KEY, current.id);
   return current;
 };
 
 export const setCurrentLocalUser = (userId: string): LocalUser => {
   const users = getLocalUsers();
   const found = users.find((user) => user.id === userId) ?? users[0];
-  localStorage.setItem(CURRENT_USER_KEY, found.id);
+  setStorageString("local", CURRENT_USER_KEY, found.id);
   return found;
 };
 
 export const createLocalUser = (name: string): LocalUser => {
   const users = getLocalUsers();
   const user: LocalUser = {
-    id: `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    id: `local-${nanoid(10)}`,
     name: name.trim() || "ローカルユーザー",
-    createdAt: Date.now(),
+    createdAt: nowMs(),
   };
   writeUsers([...users, user]);
-  localStorage.setItem(CURRENT_USER_KEY, user.id);
+  setStorageString("local", CURRENT_USER_KEY, user.id);
   return user;
 };
 

@@ -13,6 +13,7 @@ import { initSentry } from "./lib/sentry";
 import { deleteApiCache, getApiCache, setApiCache } from "./lib/cacheDb";
 import { ensureNativeProxyStarted } from "./lib/nativeProxy";
 import { initCapacitorSpecial } from "./lib/capacitorSpecial";
+import { getStorageString, removeStorageValue, setStorageString } from "./lib/browserStorage";
 import "./i18n";
 import "./index.css";
 
@@ -29,14 +30,14 @@ const isDynamicImportFetchError = (reason: unknown): boolean => {
 };
 
 const reloadOnceForDynamicImportError = (): void => {
-  const alreadyReloaded = sessionStorage.getItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY) === "1";
+  const alreadyReloaded = getStorageString("session", DYNAMIC_IMPORT_RELOAD_GUARD_KEY) === "1";
   if (alreadyReloaded) return;
-  sessionStorage.setItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY, "1");
+  setStorageString("session", DYNAMIC_IMPORT_RELOAD_GUARD_KEY, "1");
   window.location.reload();
 };
 
 window.addEventListener("pageshow", () => {
-  sessionStorage.removeItem(DYNAMIC_IMPORT_RELOAD_GUARD_KEY);
+  removeStorageValue("session", DYNAMIC_IMPORT_RELOAD_GUARD_KEY);
 });
 
 window.addEventListener("vite:preloadError", (event) => {

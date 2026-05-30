@@ -1,4 +1,6 @@
 import { registerSW } from "virtual:pwa-register";
+import { z } from "zod";
+import { getStorageJson } from "./lib/browserStorage";
 import { resolveLaunchPath } from "./lib/launchIntent";
 import { isCapacitorRuntime } from "./lib/runtimeEnv";
 
@@ -7,6 +9,9 @@ interface WindowControlsOverlayLike extends EventTarget {
   getTitlebarAreaRect?: () => DOMRect;
 }
 let advancedWebApisInitialized = false;
+const idleSettingsSchema = z.object({
+  backgroundPlaybackEnabled: z.boolean().optional(),
+}).passthrough();
 
 export const registerPwaServiceWorker = (): void => {
   if (import.meta.env.DEV) return;
@@ -88,18 +93,7 @@ const setupIdleDetection = async (): Promise<void> => {
       const isIdle = document.hidden;
       document.documentElement.dataset.idleState = isIdle ? "idle" : "active";
 
-      let backgroundPlaybackEnabled = true;
-      try {
-        const raw = localStorage.getItem("invidious-client-settings");
-        if (raw) {
-          const parsed = JSON.parse(raw) as { backgroundPlaybackEnabled?: boolean };
-          if (typeof parsed.backgroundPlaybackEnabled === "boolean") {
-            backgroundPlaybackEnabled = parsed.backgroundPlaybackEnabled;
-          }
-        }
-      } catch {
-        // ignore localStorage parse errors
-      }
+      const { backgroundPlaybackEnabled = true } = getStorageJson("local", "invidious-client-settings", idleSettingsSchema, {});
 
       if (isIdle && !backgroundPlaybackEnabled) {
         for (const videoElement of document.querySelectorAll("video")) {

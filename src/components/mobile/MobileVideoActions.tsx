@@ -49,11 +49,13 @@ const useStyles = makeStyles({
     WebkitOverflowScrolling: "touch",
     overscrollBehaviorX: "contain",
     paddingBottom: "4px",
+    scrollbarWidth: "none",
+    msOverflowStyle: "none",
     "& > *": {
       flexShrink: 0,
       whiteSpace: "nowrap",
     },
-    "::-webkit-scrollbar": {
+    "&::-webkit-scrollbar": {
       display: "none",
     },
   },

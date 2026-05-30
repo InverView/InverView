@@ -10,8 +10,13 @@
   --app-accent: #2a8cff;
   --sidebar-width-expanded: 200px;
   --sidebar-width-collapsed: 64px;
-  --sidebar-transition: width 133ms cubic-bezier(0.2, 0, 0, 1);
+  --sidebar-transition: width 280ms cubic-bezier(0.16, 1, 0.3, 1);
   --header-height: 48px;
+  --scrollbar-size: 10px;
+  --scrollbar-track: color-mix(in srgb, var(--app-accent) 8%, transparent);
+  --scrollbar-thumb: color-mix(in srgb, var(--app-accent) 58%, rgba(128, 128, 128, 0.42));
+  --scrollbar-thumb-hover: color-mix(in srgb, var(--app-accent) 78%, rgba(128, 128, 128, 0.5));
+  --scrollbar-thumb-active: color-mix(in srgb, var(--app-accent) 92%, rgba(255, 255, 255, 0.48));
   --titlebar-area-x: 0px;
   --titlebar-area-y: 0px;
   --titlebar-area-width: 0px;
@@ -66,6 +71,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+.fui-Dropdown,
+.fui-Combobox,
+.fui-Select {
+  max-width: min(100%, 360px);
+}
+
+.fui-Listbox {
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.fui-Option {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
 :root.tv-mode {
   --content-max-width: 1920px;
 }
@@ -100,22 +120,73 @@ body {
   width: 100%;
 }
 
-/* Scrollbar styling for a more premium look */
-::-webkit-scrollbar {
-  width: 8px;
+/* Scrollbar styling for app scroll container (PWA/Desktop safe scope). */
+#app-scroll-container {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-gutter: stable;
 }
 
-::-webkit-scrollbar-track {
+#app-scroll-container::-webkit-scrollbar {
+  width: var(--scrollbar-size);
+  height: var(--scrollbar-size);
+}
+
+#app-scroll-container::-webkit-scrollbar-track {
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      var(--scrollbar-track) 38%,
+      var(--scrollbar-track) 62%,
+      transparent
+    );
+  border-radius: 999px;
+}
+
+#app-scroll-container::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.34), transparent 34%),
+    linear-gradient(180deg, var(--scrollbar-thumb-hover), var(--scrollbar-thumb));
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 28%, transparent),
+    0 0 10px color-mix(in srgb, var(--app-accent) 22%, transparent);
+}
+
+#app-scroll-container::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 36%),
+    linear-gradient(180deg, var(--scrollbar-thumb-active), var(--scrollbar-thumb-hover));
+  background-clip: padding-box;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--app-accent) 42%, transparent),
+    0 0 14px color-mix(in srgb, var(--app-accent) 34%, transparent);
+}
+
+#app-scroll-container::-webkit-scrollbar-thumb:active {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.52), transparent 36%),
+    var(--scrollbar-thumb-active);
+  background-clip: padding-box;
+}
+
+#app-scroll-container::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
-  background: rgba(128, 128, 128, 0.3);
-  border-radius: 10px;
+/* Avoid scrollbar/touch interference on the watch page player area. */
+#app-scroll-container[data-watch-route="true"] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(128, 128, 128, 0.5);
+#app-scroll-container[data-watch-route="true"]::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 /* Hide scrollbars for mobile PWA standalone and Capacitor shell. */

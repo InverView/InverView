@@ -1,4 +1,5 @@
 import { openDB } from "idb";
+import { expiresAtFromNow, nowMs } from "./time";
 
 const DB_NAME = "invidious-client-cache";
 const DB_VERSION = 1;
@@ -10,6 +11,28 @@ type CacheRecord<T> = {
 };
 
 const memoryCache = new Map<string, CacheRecord<unknown>>();
+const MAX_MEMORY_CACHE_ENTRIES = 64;
+
+const pruneMemoryCache = (): void => {
+  const now = nowMs();
+  for (const [key, record] of memoryCache) {
+    if (record.expiresAt <= now) {
+      memoryCache.delete(key);
+    }
+  }
+
+  while (memoryCache.size > MAX_MEMORY_CACHE_ENTRIES) {
+    const oldestKey = memoryCache.keys().next().value;
+    if (oldestKey === undefined) return;
+    memoryCache.delete(oldestKey);
+  }
+};
+
+const setMemoryCache = (key: string, record: CacheRecord<unknown>): void => {
+  memoryCache.delete(key);
+  memoryCache.set(key, record);
+  pruneMemoryCache();
+};
 
 const dbPromise = openDB(DB_NAME, DB_VERSION, {
   upgrade(db) {
@@ -20,8 +43,8 @@ const dbPromise = openDB(DB_NAME, DB_VERSION, {
 });
 
 export const setApiCache = async <T>(key: string, value: T, ttlMs: number): Promise<void> => {
-  const expiresAt = Date.now() + ttlMs;
-  memoryCache.set(key, { value, expiresAt });
+  const expiresAt = expiresAtFromNow(ttlMs);
+  setMemoryCache(key, { value, expiresAt });
   const db = await dbPromise;
   const payload: CacheRecord<T> = {
     value,
@@ -33,7 +56,8 @@ export const setApiCache = async <T>(key: string, value: T, ttlMs: number): Prom
 export const getApiCache = async <T>(key: string): Promise<T | undefined> => {
   const memoryRecord = memoryCache.get(key) as CacheRecord<T> | undefined;
   if (memoryRecord) {
-    if (memoryRecord.expiresAt > Date.now()) {
+    if (memoryRecord.expiresAt > nowMs()) {
+      setMemoryCache(key, memoryRecord as CacheRecord<unknown>);
       return memoryRecord.value;
     }
     memoryCache.delete(key);
@@ -42,12 +66,12 @@ export const getApiCache = async <T>(key: string): Promise<T | undefined> => {
   const db = await dbPromise;
   const record = (await db.get(STORE_NAME, key)) as CacheRecord<T> | undefined;
   if (!record) return undefined;
-  if (record.expiresAt <= Date.now()) {
+  if (record.expiresAt <= nowMs()) {
     await db.delete(STORE_NAME, key);
     memoryCache.delete(key);
     return undefined;
   }
-  memoryCache.set(key, record as CacheRecord<unknown>);
+  setMemoryCache(key, record as CacheRecord<unknown>);
   return record.value;
 };
 
