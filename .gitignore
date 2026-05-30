@@ -46,3 +46,4 @@ coverage
 # Project-specific temporary files
 *.tmp
 *.temp
+docs/
