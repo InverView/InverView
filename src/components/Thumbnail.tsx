@@ -28,11 +28,20 @@ const ThumbnailBase = ({
   const safeSrc = useMemo(() => resolveMediaUrl(src, baseUrl), [src, baseUrl]);
   const srcSet = useMemo(() => {
     if (!sources || sources.length === 0) return undefined;
-    const candidates = sources
-      .filter((item) => Number.isFinite(item.width) && item.width > 0 && !!item.url)
-      .sort((a, b) => a.width - b.width)
-      .map((item) => `${resolveMediaUrl(item.url, baseUrl)} ${item.width}w`);
-    return candidates.length > 0 ? Array.from(new Set(candidates)).join(", ") : undefined;
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+
+    for (let index = 0; index < sources.length; index += 1) {
+      const item = sources[index];
+      if (!Number.isFinite(item?.width) || item.width <= 0 || !item.url) continue;
+
+      const candidate = `${resolveMediaUrl(item.url, baseUrl)} ${item.width}w`;
+      if (seen.has(candidate)) continue;
+      seen.add(candidate);
+      candidates.push(candidate);
+    }
+
+    return candidates.length > 0 ? candidates.join(", ") : undefined;
   }, [sources, baseUrl]);
   const placeholder = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1280' height='720' viewBox='0 0 1280 720'%3E%3Crect width='100%25' height='100%25' fill='%231A202C'/%3E%3C/svg%3E";
   const [loadedSrc, setLoadedSrc] = useState<string>("");

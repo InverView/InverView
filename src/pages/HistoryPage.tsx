@@ -11,12 +11,10 @@ import {
   DialogContent,
   DialogActions,
   Title1,
-  Subtitle1,
   Tooltip,
-  Spinner,
 } from "@fluentui/react-components";
-import { Delete20Regular, Play16Regular, EyeOff24Regular, Settings20Regular, History24Regular } from "@fluentui/react-icons";
-import { useMemo, useRef, useState, useCallback, useEffect } from "react";
+import { Delete20Regular, Play16Regular, EyeOff24Regular, Settings20Regular } from "@fluentui/react-icons";
+import { useRef, useState, useCallback } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useNavigate } from "react-router-dom";
 import { useTranslation } from "react-i18next";
@@ -26,8 +24,7 @@ import { formatDateJa, formatDuration } from "../lib/format";
 import { clearWatchHistory, getWatchHistory, removeWatchHistoryItem } from "../lib/watchHistory";
 import { useSettings } from "../hooks/useSettings";
 import { withViewTransition } from "../lib/webPlatform";
-import { filterAndSortVideos } from "../lib/workerClient";
-import { triggerHaptic } from "../lib/haptic";
+import type { WatchHistoryItem } from "../settings/types";
 
 const useStyles = makeStyles({
   container: {
@@ -136,30 +133,11 @@ export const HistoryPage = (): JSX.Element => {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { settings } = useSettings();
-  const [version, setVersion] = useState(0);
+  const [, setVersion] = useState(0);
   const [isConfirmOpen, setIsConfirmOpen] = useState(false);
   const parentRef = useRef<HTMLDivElement | null>(null);
 
-  const [history, setHistory] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    let active = true;
-    setIsLoading(true);
-
-    const rawHistory = getWatchHistory();
-    // Web Workerに重いフィルタリング/ソート（デデュプリケーション）処理をオフロード！！！
-    void filterAndSortVideos(rawHistory, "", "date", "desc").then((processed) => {
-      if (active) {
-        setHistory(processed);
-        setIsLoading(false);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [version]);
+  const history = getWatchHistory();
 
   const shouldVirtualize = history.length >= 40;
   const rowVirtualizer = useVirtualizer({
@@ -174,7 +152,7 @@ export const HistoryPage = (): JSX.Element => {
     withViewTransition(() => navigate(`/watch/${videoId}?autoplay=1`));
   }, [navigate]);
 
-  const renderHistoryItem = useCallback((item: any) => {
+  const renderHistoryItem = useCallback((item: WatchHistoryItem) => {
     return (
       <Card
         appearance="subtle"
@@ -301,11 +279,7 @@ export const HistoryPage = (): JSX.Element => {
         </DialogSurface>
       </Dialog>
 
-      {isLoading ? (
-        <div style={{ display: "flex", justifyContent: "center", padding: "40px" }}>
-          <Spinner size="large" label={t("common.loading") || "読み込み中..."} />
-        </div>
-      ) : history.length === 0 ? (
+      {history.length === 0 ? (
         <EmptyState title={t("history.emptyTitle")} description={t("history.emptyDescription")} />
       ) : (
         shouldVirtualize ? (

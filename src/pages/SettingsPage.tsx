@@ -708,6 +708,8 @@ export const SettingsPage = (): JSX.Element => {
                     </Caption1>
                   </div>
                 </SectionCard>
+              )}
+              {activeTab === "account" && (
                 <SectionCard title={t("settings.accountSection")}>
                   <Text size={200} className={styles.helperText}>
                     {t("settings.accountDescription")}

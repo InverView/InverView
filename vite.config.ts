@@ -41,11 +41,31 @@ export default defineConfig({
         start_url: "/",
         icons: [
           {
-            src: "/favicon.svg",
-            sizes: "any",
-            type: "image/svg+xml",
+            src: "/pwa-icons/icon-192x192.png",
+            sizes: "192x192",
+            type: "image/png",
             purpose: "any",
           },
+          {
+            src: "/pwa-icons/icon-512x512.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any maskable",
+          },
+          {
+            src: "/pwa-icons/icon.png",
+            sizes: "512x512",
+            type: "image/png",
+            purpose: "any",
+          },
+        ],
+        screenshots: [
+          { src: "/screenshots/mobile/1.jpg", type: "image/jpeg" },
+          { src: "/screenshots/mobile/2.jpg", type: "image/jpeg" },
+          { src: "/screenshots/mobile/3.jpg", type: "image/jpeg" },
+          { src: "/screenshots/mobile/4.jpg", type: "image/jpeg" },
+          { src: "/screenshots/pc/1.png", type: "image/png" },
+          { src: "/screenshots/pc/2.png", type: "image/png" },
         ],
       },
       devOptions: {
@@ -55,7 +75,8 @@ export default defineConfig({
       srcDir: "src",
       filename: "sw.ts",
       injectManifest: {
-        globPatterns: ["**/*.{js,css,html,svg,png,webp,ico,woff2}"],
+        globPatterns: ["**/*.{js,css,html,svg,png,webp,ico,woff2,jpg,jpeg}"],
+        maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
       },
     }),
   ],

@@ -103,24 +103,34 @@ export const pickPlayableStream = (
       ? 480
       : 1080;
 
-  const filteredByType = options.audioOnly
-    ? streams.filter((stream) => (stream.type ?? stream.container ?? "").includes("audio"))
-    : streams;
+  const scoreStream = (stream: StreamLike): number => {
+    const height = parseHeight(stream);
+    const container = stream.container ?? "";
+    const containerScore = container.includes("mp4") ? 1000 : container.includes("webm") ? 900 : 800;
+    const penalty = height > preferredLimit ? (height - preferredLimit) * 4 : preferredLimit - height;
+    return containerScore * 10_000 - penalty;
+  };
 
-  const candidates = filteredByType.length ? filteredByType : streams;
+  let bestTyped: StreamLike | undefined;
+  let bestTypedScore = Number.NEGATIVE_INFINITY;
+  let bestFallback: StreamLike | undefined;
+  let bestFallbackScore = Number.NEGATIVE_INFINITY;
 
-  const ranked = [...candidates].sort((a, b) => {
-    const aHeight = parseHeight(a);
-    const bHeight = parseHeight(b);
+  for (let index = 0; index < streams.length; index += 1) {
+    const stream = streams[index];
+    const score = scoreStream(stream);
 
-    const aContainerScore = (a.container ?? "").includes("mp4") ? 1000 : (a.container ?? "").includes("webm") ? 900 : 800;
-    const bContainerScore = (b.container ?? "").includes("mp4") ? 1000 : (b.container ?? "").includes("webm") ? 900 : 800;
+    if (score > bestFallbackScore) {
+      bestFallback = stream;
+      bestFallbackScore = score;
+    }
 
-    const aPenalty = aHeight > preferredLimit ? (aHeight - preferredLimit) * 4 : preferredLimit - aHeight;
-    const bPenalty = bHeight > preferredLimit ? (bHeight - preferredLimit) * 4 : preferredLimit - bHeight;
+    if (!options.audioOnly || !(stream.type ?? stream.container ?? "").includes("audio")) continue;
+    if (score > bestTypedScore) {
+      bestTyped = stream;
+      bestTypedScore = score;
+    }
+  }
 
-    return bContainerScore - aContainerScore || aPenalty - bPenalty;
-  });
-
-  return ranked[0];
+  return bestTyped ?? bestFallback;
 };

@@ -21,7 +21,7 @@ import { triggerHaptic } from "../lib/haptic";
 import { getCurrentLocalUser } from "../lib/localUsers";
 import { getLocalSubscriptionIds } from "../lib/localSubscriptions";
 import type { VideoObject } from "../types/invidious";
-import { mergeTrendingAndSubscriptions } from "../lib/workerClient";
+import { mergeTrendingAndSubscriptionItems } from "../lib/videoProcessing";
 import { settledWithConcurrencyLimit } from "../lib/promiseLimit";
 import { getStorageString, removeStorageValue, setStorageString } from "../lib/browserStorage";
 
@@ -147,8 +147,6 @@ export const HomePage = (): JSX.Element => {
     placeholderData: (previousData) => previousData,
   });
 
-  const [mergedVideos, setMergedVideos] = useState<VideoObject[]>([]);
-  const [isMerging, setIsMerging] = useState(false);
   const popularVideos = useMemo(() => {
     const data = popularQuery.data;
     if (!Array.isArray(data)) return [];
@@ -162,33 +160,17 @@ export const HomePage = (): JSX.Element => {
     return items;
   }, [popularQuery.data]);
 
-  useEffect(() => {
-    let active = true;
+  const mergedVideos = useMemo(() => {
     const trendingData = Array.isArray(trendingQuery.data) ? trendingQuery.data : [];
     const subscribedData = token
       ? (Array.isArray(authFeedQuery.data?.videos) ? authFeedQuery.data.videos : [])
       : (Array.isArray(localSubscribedVideosQuery.data) ? localSubscribedVideosQuery.data : []);
 
     if (trendingData.length === 0 && subscribedData.length === 0) {
-      queueMicrotask(() => {
-        if (active) setMergedVideos([]);
-      });
-      return;
+      return [];
     }
 
-    queueMicrotask(() => {
-      if (active) setIsMerging(true);
-    });
-    void mergeTrendingAndSubscriptions(trendingData, subscribedData).then((result) => {
-      if (active) {
-        setMergedVideos(result);
-        setIsMerging(false);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
+    return mergeTrendingAndSubscriptionItems(trendingData, subscribedData);
   }, [trendingQuery.data, authFeedQuery.data, localSubscribedVideosQuery.data, token]);
 
   useEffect(() => {
@@ -293,8 +275,7 @@ export const HomePage = (): JSX.Element => {
     const isLoading =
       trendingQuery.isLoading ||
       authFeedQuery.isLoading ||
-      localSubscribedVideosQuery.isLoading ||
-      isMerging;
+      localSubscribedVideosQuery.isLoading;
     const isError =
       trendingQuery.isError &&
       (token ? authFeedQuery.isError : localSubscribedVideosQuery.isError);

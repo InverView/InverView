@@ -12,6 +12,13 @@ type CacheRecord<T> = {
 
 const memoryCache = new Map<string, CacheRecord<unknown>>();
 const MAX_MEMORY_CACHE_ENTRIES = 64;
+const MAX_MEMORY_ARRAY_LENGTH = 60;
+
+const shouldKeepInMemory = (key: string, value: unknown): boolean => {
+  if (key.includes("react-query-cache")) return false;
+  if (Array.isArray(value)) return value.length <= MAX_MEMORY_ARRAY_LENGTH;
+  return true;
+};
 
 const pruneMemoryCache = (): void => {
   const now = nowMs();
@@ -44,7 +51,11 @@ const dbPromise = openDB(DB_NAME, DB_VERSION, {
 
 export const setApiCache = async <T>(key: string, value: T, ttlMs: number): Promise<void> => {
   const expiresAt = expiresAtFromNow(ttlMs);
-  setMemoryCache(key, { value, expiresAt });
+  if (shouldKeepInMemory(key, value)) {
+    setMemoryCache(key, { value, expiresAt });
+  } else {
+    memoryCache.delete(key);
+  }
   const db = await dbPromise;
   const payload: CacheRecord<T> = {
     value,
@@ -71,7 +82,9 @@ export const getApiCache = async <T>(key: string): Promise<T | undefined> => {
     memoryCache.delete(key);
     return undefined;
   }
-  setMemoryCache(key, record as CacheRecord<unknown>);
+  if (shouldKeepInMemory(key, record.value)) {
+    setMemoryCache(key, record as CacheRecord<unknown>);
+  }
   return record.value;
 };
 

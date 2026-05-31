@@ -3,6 +3,10 @@ import { filterAndSortVideoItems, mergeTrendingAndSubscriptionItems, type Proces
 let worker: Worker | null = null;
 let isWorkerBroken = false;
 const pendingMessages = new Map<string, (result: unknown) => void>();
+let workerIdleTimerId = 0;
+
+const WORKER_IDLE_TIMEOUT_MS = 10_000;
+const MIN_ITEMS_FOR_WORKER = 500;
 
 const handleWorkerMessage = (e: MessageEvent): void => {
   const resolver = pendingMessages.get(e.data?.messageId);
@@ -14,6 +18,7 @@ const handleWorkerMessage = (e: MessageEvent): void => {
 const disableWorker = (): void => {
   isWorkerBroken = true;
   pendingMessages.clear();
+  window.clearTimeout(workerIdleTimerId);
   try {
     worker?.removeEventListener("message", handleWorkerMessage);
     worker?.terminate();
@@ -24,9 +29,9 @@ const disableWorker = (): void => {
 };
 
 const initWorker = () => {
+  if (worker || isWorkerBroken) return;
   try {
     if (typeof window !== "undefined" && window.Worker) {
-      // Vite に適した URL ベースの Worker インスタンス作成
       worker = new Worker(
         new URL("../workers/dataProcessor.worker.ts", import.meta.url),
         { type: "module" }
@@ -43,7 +48,22 @@ const initWorker = () => {
   }
 };
 
-initWorker();
+const terminateIdleWorker = (): void => {
+  if (pendingMessages.size > 0) return;
+  try {
+    worker?.removeEventListener("message", handleWorkerMessage);
+    worker?.terminate();
+  } catch {
+    // ignore
+  }
+  worker = null;
+};
+
+const scheduleWorkerCleanup = (): void => {
+  if (typeof window === "undefined") return;
+  window.clearTimeout(workerIdleTimerId);
+  workerIdleTimerId = window.setTimeout(terminateIdleWorker, WORKER_IDLE_TIMEOUT_MS);
+};
 
 // タイムアウト付きで Worker 処理を実行するヘルパー関数
 const runInWorker = <T>(
@@ -53,6 +73,10 @@ const runInWorker = <T>(
   timeoutMs = 1500,
   shouldUseWorker = true
 ): Promise<T> => {
+  if (shouldUseWorker && !worker && !isWorkerBroken) {
+    initWorker();
+  }
+
   if (!shouldUseWorker || !worker || isWorkerBroken) {
     return Promise.resolve(fallbackFn());
   }
@@ -66,6 +90,7 @@ const runInWorker = <T>(
       resolved = true;
       window.clearTimeout(timer);
       pendingMessages.delete(messageId);
+      scheduleWorkerCleanup();
       resolve(value);
     };
 
@@ -94,7 +119,7 @@ export const filterAndSortVideos = <T extends ProcessableVideoItem>(
   sortBy: "date" | "views" | "duration" | "none" = "none",
   sortOrder: "asc" | "desc" = "desc"
 ): Promise<T[]> => {
-  const shouldUseWorker = videos.length >= 80;
+  const shouldUseWorker = videos.length >= MIN_ITEMS_FOR_WORKER;
   return runInWorker(
     "filterAndSort",
     { videos, query, sortBy, sortOrder },
@@ -113,7 +138,7 @@ export const mergeTrendingAndSubscriptions = <T extends ProcessableVideoItem>(
   trendingVideos: T[],
   subscribedVideos: T[]
 ): Promise<T[]> => {
-  const shouldUseWorker = trendingVideos.length + subscribedVideos.length >= 80;
+  const shouldUseWorker = trendingVideos.length + subscribedVideos.length >= MIN_ITEMS_FOR_WORKER;
   return runInWorker(
     "mergeTrendingAndSubscriptions",
     { trendingVideos, subscribedVideos },
