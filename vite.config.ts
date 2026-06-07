@@ -60,12 +60,12 @@ export default defineConfig({
           },
         ],
         screenshots: [
-          { src: "/screenshots/mobile/1.jpg", type: "image/jpeg" },
-          { src: "/screenshots/mobile/2.jpg", type: "image/jpeg" },
-          { src: "/screenshots/mobile/3.jpg", type: "image/jpeg" },
-          { src: "/screenshots/mobile/4.jpg", type: "image/jpeg" },
-          { src: "/screenshots/pc/1.png", type: "image/png" },
-          { src: "/screenshots/pc/2.png", type: "image/png" },
+          { src: "/screenshots/mobile/1.jpg", sizes: "390x844", type: "image/jpeg", form_factor: "narrow" },
+          { src: "/screenshots/mobile/2.jpg", sizes: "390x844", type: "image/jpeg", form_factor: "narrow" },
+          { src: "/screenshots/mobile/3.jpg", sizes: "390x844", type: "image/jpeg", form_factor: "narrow" },
+          { src: "/screenshots/mobile/4.jpg", sizes: "390x844", type: "image/jpeg", form_factor: "narrow" },
+          { src: "/screenshots/pc/1.png", sizes: "1280x720", type: "image/png", form_factor: "wide" },
+          { src: "/screenshots/pc/2.png", sizes: "1280x720", type: "image/png", form_factor: "wide" },
         ],
       },
       devOptions: {

@@ -9,7 +9,7 @@ import {
 import screenfull from "screenfull";
 import { useTranslation } from "react-i18next";
 import type { VideoDetails } from "../types/invidious";
-import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib/media";
+import { pickPlayableStream, pickPosterThumbnail, resolveCompanionVideoPlaybackUrl, resolveMediaUrl } from "../lib/media";
 import { togglePictureInPicture, vibrate } from "../lib/webPlatform";
 import { useSettingsStore } from "../store/settingsStore";
 import { notifyError } from "../lib/notifications";
@@ -20,6 +20,7 @@ import {
   showBackgroundPlaybackNotification,
 } from "../lib/capacitorSpecial";
 import { parseJsonUnknown } from "../lib/safeJson";
+import { getServerRuntimeInfo, isSameOriginOrRelativeUrl } from "../lib/serverRuntime";
 
 type ShakaRuntime = typeof import("shaka-player/dist/shaka-player.ui.js").default;
 type HlsRuntime = typeof import("hls.js").default;
@@ -364,6 +365,7 @@ export const VideoPlayer = ({
   const [playbackError, setPlaybackError] = useState<string>("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [cinematicGlowColor, setCinematicGlowColor] = useState("rgba(0, 0, 0, 0)");
+  const [isWorkerRuntime, setIsWorkerRuntime] = useState(false);
   const [isTabActiveForGlow, setIsTabActiveForGlow] = useState(true);
   const shouldKeepPlayingInBackgroundRef = useRef(false);
 
@@ -397,6 +399,7 @@ export const VideoPlayer = ({
   const audioOnly = useSettingsStore((state) => state.audioOnly);
   const dataSaver = useSettingsStore((state) => state.dataSaver);
   const companionUrl = useSettingsStore((state) => state.companionUrl);
+  const useProxyVideo = useSettingsStore((state) => state.useProxyVideo);
   const hapticFeedback = useSettingsStore((state) => state.hapticFeedback);
   const cinematicLighting = useSettingsStore((state) => state.cinematicLighting);
   const pictureInPictureEnabled = useSettingsStore((state) => state.pictureInPictureEnabled);
@@ -409,25 +412,41 @@ export const VideoPlayer = ({
   const setVolume = useSettingsStore((state) => state.setVolume);
   const setMuted = useSettingsStore((state) => state.setMuted);
 
+  useEffect(() => {
+    let cancelled = false;
+    void getServerRuntimeInfo().then((info) => {
+      if (!cancelled) setIsWorkerRuntime(info?.runtime === "cloudflare-worker");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const shouldUseCompanionProxy = useProxyVideo && !(isWorkerRuntime && isSameOriginOrRelativeUrl(companionUrl));
+  const effectiveCompanionUrl = shouldUseCompanionProxy ? companionUrl : "";
+
   const stream = useMemo(
     () =>
       pickPlayableStream(
-        video.formatStreams?.map((item) => ({ ...item, url: resolveMediaUrl(item.url, baseUrl) })),
+        video.formatStreams?.map((item) => ({
+          ...item,
+          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : ""), baseUrl),
+        })),
         { quality, dataSaver, audioOnly },
       ),
-    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly],
+    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl],
   );
 
   const dashUrl = useMemo(() => {
-    if (companionUrl) {
-      let cleanBase = companionUrl.replace(/\/+$/, "");
+    if (effectiveCompanionUrl) {
+      let cleanBase = effectiveCompanionUrl.replace(/\/+$/, "");
       if (cleanBase.endsWith("/companion")) {
         cleanBase = cleanBase.substring(0, cleanBase.length - 10);
       }
       return `${cleanBase}/companion/api/manifest/dash/id/${video.videoId}?local=true`;
     }
     return resolveMediaUrl(video.dashUrl, baseUrl);
-  }, [companionUrl, video.dashUrl, video.videoId, baseUrl]);
+  }, [effectiveCompanionUrl, video.dashUrl, video.videoId, baseUrl]);
 
   const hlsUrl = resolveMediaUrl(video.hlsUrl, baseUrl);
 

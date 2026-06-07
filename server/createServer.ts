@@ -27,6 +27,14 @@ type TvSession = {
 
 const SESSION_TTL_MS = 1000 * 60 * 60 * 6;
 const nowMs = (): number => getTime(new Date());
+const isVideoPlaybackUrl = (url: URL): boolean => {
+  const host = url.hostname.toLowerCase();
+  return host.endsWith("googlevideo.com") || url.pathname.includes("/videoplayback");
+};
+const buildCompanionVideoPlaybackUrl = (companionUrl: string, sourceUrl: URL): string => {
+  const base = companionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
+  return `${base}/companion/videoplayback${sourceUrl.search}`;
+};
 
 export const createProxyServer = (config: ProxyServerConfig): FastifyInstance => {
   const fastify = Fastify({ logger: true });
@@ -56,6 +64,11 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
   };
 
   fastify.register(cors, { origin: true });
+
+  fastify.get("/companion/videoplayback", async (request, reply) => {
+    const sourceUrl = new URL(request.url, "http://127.0.0.1");
+    return reply.code(302).header("Location", buildCompanionVideoPlaybackUrl(config.companionUrl, sourceUrl)).send();
+  });
 
   fastify.register(proxy, {
     upstream: config.companionUrl,
@@ -91,6 +104,9 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
       return reply.code(400).send({ error: "invalid_url" });
     }
     if (parsed.protocol !== "https:") return reply.code(400).send({ error: "https_only" });
+    if (isVideoPlaybackUrl(parsed)) {
+      return reply.code(302).header("Location", buildCompanionVideoPlaybackUrl(config.companionUrl, parsed)).send();
+    }
 
     const buildForwardBody = (): unknown => {
       if (request.method === "GET" || request.method === "HEAD") return undefined;
