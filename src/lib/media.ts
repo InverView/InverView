@@ -4,6 +4,43 @@ import type { QualityMode } from "../store/settingsStore";
 const ABSOLUTE_URL_RE = /^https?:\/\//i;
 const normalizeBase = (baseUrl: string): string => baseUrl.replace(/\/+$/, "");
 
+export const isVideoPlaybackUrl = (url: string | undefined): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host.endsWith("googlevideo.com") || parsed.pathname.includes("/videoplayback");
+  } catch {
+    return url.includes("/videoplayback");
+  }
+};
+
+export const resolveCompanionVideoPlaybackUrl = (
+  url: string | undefined,
+  companionUrl: string,
+  videoId?: string,
+): string => {
+  if (!url) return "";
+  const trimmedCompanionUrl = companionUrl.trim();
+  const trimmedVideoId = (videoId || "").trim();
+  if (!trimmedCompanionUrl || !trimmedVideoId || !isVideoPlaybackUrl(url)) return url;
+
+  try {
+    const parsed = new URL(url);
+    const itag = (parsed.searchParams.get("itag") || "").trim();
+    if (!itag) return url;
+    const companionBase = trimmedCompanionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
+    const searchParams = new URLSearchParams({
+      id: trimmedVideoId,
+      itag,
+      local: "true",
+    });
+    return `${companionBase}/companion/latest_version?${searchParams.toString()}`;
+  } catch {
+    return url;
+  }
+};
+
 export const resolveMediaUrl = (url: string | undefined, baseUrl: string): string => {
   if (!url) return "";
 

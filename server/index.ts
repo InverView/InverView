@@ -4,7 +4,7 @@ import { createProxyServer } from "./createServer";
 dotenv.config();
 
 const PRIMARY_COMPANION_URL = "https://companion.tsub4sa.xyz";
-const FALLBACK_COMPANION_URL = "https://proxy.tsub4sa.xyz";
+const FALLBACK_COMPANION_URL = "https://companion.tsub4sa.xyz";
 const firstNonEmpty = (...values: Array<string | undefined>): string => {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();

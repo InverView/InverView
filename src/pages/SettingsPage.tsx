@@ -20,7 +20,7 @@ import {
   TabList,
   Tab,
 } from "@fluentui/react-components";
-import { Dismiss24Regular } from "@fluentui/react-icons";
+import { ArrowLeft24Regular, Dismiss24Regular } from "@fluentui/react-icons";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useForm } from "react-hook-form";
@@ -29,7 +29,7 @@ import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import i18n from "../i18n";
 import { useSettings } from "../hooks/useSettings";
-import type { AccentColor, AnimationStrength, CompanionMode, CornerRadius, LastFmTitleFormatMode, QualityMode, StartPage, ThemeMode } from "../hooks/useSettings";
+import type { AccentColor, AnimationStrength, CompanionMode, CornerRadius, LastFmTitleFormatMode, QualityMode, StartPage, ThemeMode, UiDensity } from "../hooks/useSettings";
 import { clearRecentSearches } from "../lib/recentSearch";
 import { clearWatchHistory } from "../lib/watchHistory";
 import { createLocalUser, getCurrentLocalUser, getLocalUsers, setCurrentLocalUser } from "../lib/localUsers";
@@ -55,7 +55,7 @@ const isCapacitor = isCapacitorRuntime();
 const electronProxyBaseUrl = import.meta.env.VITE_ELECTRON_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
 const capacitorProxyBaseUrl = import.meta.env.VITE_CAPACITOR_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
 const primaryCompanionUrl = "https://companion.tsub4sa.xyz";
-const fallbackCompanionUrl = "https://proxy.tsub4sa.xyz";
+const fallbackCompanionUrl = "https://companion.tsub4sa.xyz";
 const firstNonEmpty = (...values: Array<string | undefined>): string => {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
@@ -139,9 +139,11 @@ const useStyles = makeStyles({
     padding: "20px 22px",
     boxSizing: "border-box",
     "@media (max-width: 768px)": {
-      padding: "16px",
+      padding: "0",
+      gap: "0",
       height: "100% !important",
       maxHeight: "100% !important",
+      backgroundColor: tokens.colorNeutralBackground1,
     },
   },
   settingsLayout: {
@@ -154,7 +156,9 @@ const useStyles = makeStyles({
     marginTop: "16px",
     "@media (max-width: 768px)": {
       flexDirection: "column",
-      gap: "12px",
+      gap: "0",
+      marginTop: "0",
+      overflowY: "auto",
     },
   },
   sidebar: {
@@ -163,10 +167,10 @@ const useStyles = makeStyles({
     overflowY: "auto",
     "@media (max-width: 768px)": {
       width: "100%",
-      overflowX: "auto",
-      overflowY: "hidden",
+      overflowX: "hidden",
+      overflowY: "visible",
       borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
-      paddingBottom: "8px",
+      paddingBottom: "0",
     },
   },
   contentArea: {
@@ -177,12 +181,25 @@ const useStyles = makeStyles({
     display: "flex",
     flexDirection: "column",
     gap: "16px",
+    "@media (max-width: 768px)": {
+      overflowY: "visible",
+      padding: "16px",
+      gap: "12px",
+    },
   },
   mobileTabListContainer: {
-    overflowX: "auto",
-    scrollbarWidth: "none",
-    "&::-webkit-scrollbar": {
-      display: "none",
+    width: "100%",
+    overflowX: "hidden",
+    overflowY: "visible",
+    "& [role=tablist]": {
+      width: "100%",
+    },
+    "& [role=tab]": {
+      justifyContent: "flex-start",
+      minHeight: "56px",
+      paddingLeft: "16px",
+      paddingRight: "16px",
+      borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
     },
   },
   titleRow: {
@@ -190,6 +207,14 @@ const useStyles = makeStyles({
     justifyContent: "space-between",
     alignItems: "center",
     gap: "12px",
+    "@media (max-width: 768px)": {
+      justifyContent: "flex-start",
+      padding: "14px 16px",
+      borderBottom: `1px solid ${tokens.colorNeutralStroke2}`,
+      "& button": {
+        order: -1,
+      },
+    },
   },
   grid: {
     display: "grid",
@@ -282,6 +307,8 @@ export const SettingsPage = (): JSX.Element => {
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [activeTab, setActiveTab] = useState("general");
+  const defaultLastFmApiKey = import.meta.env.VITE_LASTFM_API_KEY || "";
+  const defaultLastFmApiSecret = import.meta.env.VITE_LASTFM_API_SECRET || "";
 
   useEffect(() => {
     const handleResize = () => {
@@ -338,13 +365,15 @@ export const SettingsPage = (): JSX.Element => {
       shouldSkipHistoryBackRef.current = true;
     }
     if (token && isLastFmCallback) {
-      if (!settings.lastFmApiKey.trim() || !settings.lastFmApiSecret.trim()) {
+      const apiKey = settings.lastFmApiKey.trim() || defaultLastFmApiKey.trim();
+      const apiSecret = settings.lastFmApiSecret.trim() || defaultLastFmApiSecret.trim();
+      if (!apiKey || !apiSecret) {
         openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmCredentialsRequired"));
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, document.title, cleanUrl);
         return;
       }
-      void getLastFmSessionFromToken(settings.lastFmApiKey, settings.lastFmApiSecret, token)
+      void getLastFmSessionFromToken(apiKey, apiSecret, token)
         .then(({ username, sessionKey }) => {
           setSetting("lastFmUsername", username);
           setSetting("lastFmSessionKey", sessionKey);
@@ -408,12 +437,13 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const openLastFmAuth = (): void => {
-    if (!settings.lastFmApiKey.trim()) {
+    const apiKey = settings.lastFmApiKey.trim() || defaultLastFmApiKey.trim();
+    if (!apiKey) {
       openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmApiKeyRequired"));
       return;
     }
     const callback = `${window.location.origin}${window.location.pathname}?settings=1&lastfm=1`;
-    const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(settings.lastFmApiKey.trim())}&cb=${encodeURIComponent(callback)}`;
+    const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(apiKey)}&cb=${encodeURIComponent(callback)}`;
     void openExternalUrl(authUrl);
   };
 
@@ -443,8 +473,6 @@ export const SettingsPage = (): JSX.Element => {
     }
     navigate("/");
   };
-  const defaultLastFmApiKey = import.meta.env.VITE_LASTFM_API_KEY || "";
-  const defaultLastFmApiSecret = import.meta.env.VITE_LASTFM_API_SECRET || "";
 
   return (
     <Dialog open onOpenChange={(_, data) => { if (!data.open) closeSettingsOverlay(); }}>
@@ -454,7 +482,7 @@ export const SettingsPage = (): JSX.Element => {
             <Text size={700} weight="bold">{t("settings.title")}</Text>
             <Button
               appearance="subtle"
-              icon={<Dismiss24Regular />}
+              icon={isMobile ? <ArrowLeft24Regular /> : <Dismiss24Regular />}
               aria-label={t("common.close")}
               title={t("common.close")}
               onClick={closeSettingsOverlay}
@@ -465,7 +493,7 @@ export const SettingsPage = (): JSX.Element => {
             <div className={styles.sidebar}>
               <div className={isMobile ? styles.mobileTabListContainer : undefined}>
                 <TabList
-                  vertical={!isMobile}
+                  vertical
                   selectedValue={activeTab}
                   onTabSelect={(_, data) => setActiveTab(data.value as string)}
                 >
@@ -475,7 +503,7 @@ export const SettingsPage = (): JSX.Element => {
                   <Tab value="watch">{t("settings.watchSection")}</Tab>
                   <Tab value="appearance">{t("settings.appearanceSection")}</Tab>
                   <Tab value="account">{t("settings.accountSection")}</Tab>
-                  <Tab value="companion">{t("settings.companionSection")}</Tab>
+                  <Tab value="companion">{t("settings.invidiousApiSection")}</Tab>
                   <Tab value="lastfm">{t("settings.lastFmSection")}</Tab>
                   <Tab value="advanced">{t("settings.advancedSection")}</Tab>
                 </TabList>
@@ -508,15 +536,6 @@ export const SettingsPage = (): JSX.Element => {
                     )}
                   </div>
 
-                  <div className={styles.field}>
-                    <Label>{t("settings.apiProxyUrlLabel")}</Label>
-                    <Input
-                      value={settings.apiProxyUrl}
-                      onChange={(_, data) => setSetting("apiProxyUrl", data.value)}
-                      placeholder="/api-proxy"
-                    />
-                    <Caption1 className={styles.helperText}>{t("settings.apiProxyUrlDescription")}</Caption1>
-                  </div>
 
                   <div className={styles.field}>
                     <Label>{t("settings.region")}</Label>
@@ -709,6 +728,117 @@ export const SettingsPage = (): JSX.Element => {
                   </div>
                 </SectionCard>
               )}
+              {activeTab === "watch" && (
+                <SectionCard title={t("settings.watchSection")}>
+                  <div className={styles.rowField}><Label>{t("settings.expandDescriptionByDefault")}</Label><Switch checked={settings.expandDescriptionByDefault} onChange={(e) => setSetting("expandDescriptionByDefault", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.hideDescriptionSection")}</Label><Switch checked={settings.hideDescriptionSection} onChange={(e) => setSetting("hideDescriptionSection", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.expandChaptersByDefault")}</Label><Switch checked={settings.expandChaptersByDefault} onChange={(e) => setSetting("expandChaptersByDefault", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.expandCommentsByDefault")}</Label><Switch checked={settings.expandCommentsByDefault} onChange={(e) => setSetting("expandCommentsByDefault", e.target.checked)} /></div>
+                </SectionCard>
+              )}
+
+              {activeTab === "appearance" && (
+                <SectionCard title={t("settings.appearanceSection")}>
+                  <div className={styles.field}>
+                    <Label>{t("settings.theme")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.theme")}
+                      value={settings.theme}
+                      selectedOptions={[settings.theme]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("theme", data.optionValue as ThemeMode);
+                      }}
+                    >
+                      <Option value="system">{t("settings.system")}</Option>
+                      <Option value="light">{t("settings.light")}</Option>
+                      <Option value="dark">{t("settings.dark")}</Option>
+                      <Option value="amoled">AMOLED</Option>
+                    </Dropdown>
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.cornerRadius")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.cornerRadius")}
+                      value={settings.cornerRadius}
+                      selectedOptions={[settings.cornerRadius]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("cornerRadius", data.optionValue as CornerRadius);
+                      }}
+                    >
+                      <Option value="none">{t("settings.off")}</Option>
+                      <Option value="small">Small</Option>
+                      <Option value="medium">Medium</Option>
+                      <Option value="large">Large</Option>
+                      <Option value="xlarge">XLarge</Option>
+                    </Dropdown>
+                  </div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.accentColor")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.accentColor")}
+                      value={settings.accentColor}
+                      selectedOptions={[settings.accentColor]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("accentColor", data.optionValue as AccentColor);
+                      }}
+                    >
+                      <Option value="blue">{t("settings.colorBlue")}</Option>
+                      <Option value="red">{t("settings.colorRed")}</Option>
+                      <Option value="purple">{t("settings.colorPurple")}</Option>
+                      <Option value="green">{t("settings.colorGreen")}</Option>
+                      <Option value="orange">{t("settings.colorOrange")}</Option>
+                      <Option value="pink">{t("settings.colorPink")}</Option>
+                      <Option value="custom">{t("settings.custom")}</Option>
+                    </Dropdown>
+                  </div>
+                  {settings.accentColor === "custom" ? (
+                    <div className={styles.field}>
+                      <Label>{t("settings.customColor")}</Label>
+                      <input type="color" value={settings.customAccentColor} onChange={(event) => setSetting("customAccentColor", event.currentTarget.value)} />
+                    </div>
+                  ) : null}
+                  <div className={styles.field}>
+                    <Label>{t("settings.uiDensity")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.uiDensity")}
+                      value={settings.uiDensity}
+                      selectedOptions={[settings.uiDensity]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("uiDensity", data.optionValue as UiDensity);
+                      }}
+                    >
+                      <Option value="compact">{t("settings.compact")}</Option>
+                      <Option value="normal">{t("settings.normal")}</Option>
+                      <Option value="comfortable">{t("settings.comfortable")}</Option>
+                    </Dropdown>
+                  </div>
+                  <div className={styles.field}><Label>{t("settings.cardOpacity", { value: settings.cardOpacity.toFixed(2) })}</Label><input type="range" min="0.5" max="1" step="0.01" value={settings.cardOpacity} onChange={(event) => setSetting("cardOpacity", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.field}><Label>{t("settings.shadowStrength", { value: settings.shadowStrength.toFixed(2) })}</Label><input type="range" min="0" max="1" step="0.01" value={settings.shadowStrength} onChange={(event) => setSetting("shadowStrength", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.field}><Label>{t("settings.thumbnailRadius", { value: settings.thumbnailRadius })}</Label><input type="range" min="0" max="28" step="1" value={settings.thumbnailRadius} onChange={(event) => setSetting("thumbnailRadius", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.field}><Label>{t("settings.playerRadius", { value: settings.playerRadius })}</Label><input type="range" min="0" max="28" step="1" value={settings.playerRadius} onChange={(event) => setSetting("playerRadius", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.field}><Label>{t("settings.bottomNavOpacity", { value: settings.bottomNavOpacity.toFixed(2) })}</Label><input type="range" min="0.3" max="1" step="0.01" value={settings.bottomNavOpacity} onChange={(event) => setSetting("bottomNavOpacity", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.showDesktopSidebar")}</Label><Switch checked={settings.showDesktopSidebar} onChange={(e) => setSetting("showDesktopSidebar", e.target.checked)} /></div>
+                  <div className={styles.rowField}><Label>{t("settings.sidebarCollapsed")}</Label><Switch checked={settings.sidebarCollapsed} onChange={(e) => setSetting("sidebarCollapsed", e.target.checked)} /></div>
+                  <div className={styles.field}><Label>{t("settings.maxContentWidth", { value: settings.maxContentWidth })}</Label><input type="range" min="960" max="1800" step="20" value={settings.maxContentWidth} onChange={(event) => setSetting("maxContentWidth", Number(event.currentTarget.value))} /></div>
+                  <div className={styles.field}>
+                    <Label>{t("settings.animationStrength")}</Label>
+                    <Dropdown
+                      aria-label={t("settings.animationStrength")}
+                      value={settings.animationStrength}
+                      selectedOptions={[settings.animationStrength]}
+                      onOptionSelect={(_, data) => {
+                        if (data.optionValue) setSetting("animationStrength", data.optionValue as AnimationStrength);
+                      }}
+                    >
+                      <Option value="off">{t("settings.off")}</Option>
+                      <Option value="reduced">{t("settings.reduced")}</Option>
+                      <Option value="normal">{t("settings.normal")}</Option>
+                    </Dropdown>
+                  </div>
+                  <div className={styles.rowField}><Label>{t("settings.useLenis")}</Label><Switch checked={settings.useLenis} onChange={(e) => setSetting("useLenis", e.target.checked)} /></div>
+                </SectionCard>
+              )}
+
               {activeTab === "account" && (
                 <SectionCard title={t("settings.accountSection")}>
                   <Text size={200} className={styles.helperText}>
@@ -754,10 +884,20 @@ export const SettingsPage = (): JSX.Element => {
               )}
 
               {activeTab === "companion" && (
-                <SectionCard title={t("settings.companionSection")}>
+                <SectionCard title={t("settings.invidiousApiSection")}>
                   <Text size={200} className={styles.helperText}>
-                    {t("settings.companionDescription")}
+                    {t("settings.invidiousApiDescription")}
                   </Text>
+                  <div className={styles.field}>
+                    <Label>{t("settings.apiProxyUrlLabel")}</Label>
+                    <Input
+                      value={settings.apiProxyUrl}
+                      onChange={(_, data) => setSetting("apiProxyUrl", data.value)}
+                      placeholder="/api-proxy"
+                    />
+                    <Caption1 className={styles.helperText}>{t("settings.apiProxyUrlDescription")}</Caption1>
+                  </div>
+
                   <div className={styles.field}>
                     <Label>{t("settings.companionMode")}</Label>
                     <Dropdown
@@ -829,7 +969,7 @@ export const SettingsPage = (): JSX.Element => {
                       </Button>
                     </div>
                     <Caption1 className={styles.helperText}>
-                      {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyMissing")}
+                      {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyOptional")}
                     </Caption1>
                   </div>
                   <div className={styles.field}>
@@ -851,7 +991,7 @@ export const SettingsPage = (): JSX.Element => {
                       </Button>
                     </div>
                     <Caption1 className={styles.helperText}>
-                      {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretMissing")}
+                      {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretOptional")}
                     </Caption1>
                   </div>
                   <div className={styles.field}>

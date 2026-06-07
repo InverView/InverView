@@ -3,7 +3,7 @@ import { CastRegular } from "@fluentui/react-icons";
 import axios from "axios";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { VideoDetails } from "../types/invidious";
-import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib/media";
+import { pickPlayableStream, pickPosterThumbnail, resolveCompanionVideoPlaybackUrl, resolveMediaUrl } from "../lib/media";
 import { getTvSessionId, setTvSessionId } from "../lib/tvSync";
 import { useSettingsStore } from "../store/settingsStore";
 
@@ -45,14 +45,19 @@ export const ChromecastButton = ({
   const quality = useSettingsStore((state) => state.quality);
   const audioOnly = useSettingsStore((state) => state.audioOnly);
   const dataSaver = useSettingsStore((state) => state.dataSaver);
+  const useProxyVideo = useSettingsStore((state) => state.useProxyVideo);
+  const companionUrl = useSettingsStore((state) => state.companionUrl);
 
   const stream = useMemo(
     () =>
       pickPlayableStream(
-        video.formatStreams?.map((item) => ({ ...item, url: resolveMediaUrl(item.url, baseUrl) })),
+        video.formatStreams?.map((item) => ({
+          ...item,
+          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : "", video.videoId), baseUrl),
+        })),
         { quality, dataSaver, audioOnly },
       ),
-    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly],
+    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl, video.videoId],
   );
 
   const castCandidates = useMemo<Array<{ url: string; kind: MediaSourceKind }>>(() => {
@@ -70,7 +75,7 @@ export const ChromecastButton = ({
 
     const resolvedStreams = (video.formatStreams ?? []).map((item) => ({
       ...item,
-      resolvedUrl: resolveMediaUrl(item.url, baseUrl),
+      resolvedUrl: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : "", video.videoId), baseUrl),
       containerLower: (item.container ?? "").toLowerCase(),
       typeLower: (item.type ?? "").toLowerCase(),
     }));
@@ -82,7 +87,7 @@ export const ChromecastButton = ({
     if (stream?.url) pushUnique(stream.url, "stream");
 
     return candidates;
-  }, [video.dashUrl, video.hlsUrl, video.formatStreams, baseUrl, stream?.url]);
+  }, [video.dashUrl, video.hlsUrl, video.formatStreams, baseUrl, stream, useProxyVideo, companionUrl, video.videoId]);
   const mediaUrl = castCandidates[0]?.url ?? "";
   const initialTvSessionId = useMemo(() => {
     if (typeof window === "undefined") return "";

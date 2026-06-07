@@ -27,7 +27,7 @@ type NativeProxyPlugin = {
 
 const NativeProxy = registerPlugin<NativeProxyPlugin>("NativeProxy");
 const primaryCompanionUpstream = "https://companion.tsub4sa.xyz";
-const fallbackCompanionUpstream = "https://proxy.tsub4sa.xyz";
+const fallbackCompanionUpstream = "https://companion.tsub4sa.xyz";
 
 const trimOrFallback = (value: unknown, fallback: string): string => {
   if (typeof value !== "string") return fallback;

@@ -191,7 +191,7 @@ const ThemeSync = (): JSX.Element => {
     let active = true;
     const testAndSetCompanion = async () => {
       const primaryUrl = "https://companion.tsub4sa.xyz";
-      const fallbackUrl = "https://proxy.tsub4sa.xyz";
+      const fallbackUrl = "https://companion.tsub4sa.xyz";
 
       try {
         const res = await axios.get(`${primaryUrl}/health`, {
