@@ -9,7 +9,7 @@ import {
 import screenfull from "screenfull";
 import { useTranslation } from "react-i18next";
 import type { VideoDetails } from "../types/invidious";
-import { pickPlayableStream, pickPosterThumbnail, resolveMediaUrl } from "../lib/media";
+import { pickPlayableStream, pickPosterThumbnail, resolveCompanionVideoPlaybackUrl, resolveMediaUrl } from "../lib/media";
 import { togglePictureInPicture, vibrate } from "../lib/webPlatform";
 import { useSettingsStore } from "../store/settingsStore";
 import { notifyError } from "../lib/notifications";
@@ -428,10 +428,13 @@ export const VideoPlayer = ({
   const stream = useMemo(
     () =>
       pickPlayableStream(
-        video.formatStreams?.map((item) => ({ ...item, url: resolveMediaUrl(item.url, baseUrl) })),
+        video.formatStreams?.map((item) => ({
+          ...item,
+          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : ""), baseUrl),
+        })),
         { quality, dataSaver, audioOnly },
       ),
-    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly],
+    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl],
   );
 
   const dashUrl = useMemo(() => {

@@ -149,7 +149,12 @@ const isVideoPlaybackUrl = (url: URL): boolean => {
   return host.endsWith("googlevideo.com") || url.pathname.includes("/videoplayback");
 };
 
-const handleYoutubeJsProxy = async (request: Request): Promise<Response> => {
+const buildCompanionVideoPlaybackUrl = (companionUrl: string, sourceUrl: URL): string => {
+  const base = companionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
+  return `${base}/companion/videoplayback${sourceUrl.search}`;
+};
+
+const handleYoutubeJsProxy = async (request: Request, companionUrl: string): Promise<Response> => {
   const requestUrl = new URL(request.url);
   const target = (requestUrl.searchParams.get("url") || "").trim();
   if (!target) return json({ error: "url_required" }, { status: 400 });
@@ -161,7 +166,9 @@ const handleYoutubeJsProxy = async (request: Request): Promise<Response> => {
     return json({ error: "invalid_url" }, { status: 400 });
   }
   if (parsed.protocol !== "https:") return json({ error: "https_only" }, { status: 400 });
-  if (isVideoPlaybackUrl(parsed)) return json({ error: "video_proxy_disabled_on_worker" }, { status: 403 });
+  if (isVideoPlaybackUrl(parsed)) {
+    return Response.redirect(buildCompanionVideoPlaybackUrl(companionUrl, parsed), 302);
+  }
 
   const proxyCookie = (request.headers.get("x-ytjs-cookie") || "").trim();
   const headers = stripProxyHeaders(request.headers, ["x-ytjs-cookie"]);
@@ -238,13 +245,15 @@ export default {
     try {
       if (url.pathname === "/health") {
         response = json({ status: "ok", runtime: "cloudflare-worker" });
+      } else if (url.pathname === "/companion/videoplayback") {
+        response = Response.redirect(buildCompanionVideoPlaybackUrl(config.companionUrl, url), 302);
       } else if (url.pathname.startsWith("/companion")) {
         const headers = config.companionSecret ? { authorization: `Bearer ${config.companionSecret}` } : undefined;
         response = await proxyToUpstream(request, config.companionUrl, "/companion", "/companion", headers);
       } else if (url.pathname.startsWith("/api-proxy")) {
         response = await proxyToUpstream(request, config.apiProxyUpstream, "/api-proxy", "");
       } else if (url.pathname === "/youtubejs-proxy") {
-        response = await handleYoutubeJsProxy(request);
+        response = await handleYoutubeJsProxy(request, config.companionUrl);
       } else {
         response = (await handleTvSync(request, url.pathname)) ?? json({ error: "not_found" }, { status: 404 });
       }
