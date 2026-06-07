@@ -1,12 +1,7 @@
-name = "inverview-server"
+name = "inverview"
 main = "server/worker.ts"
-compatibility_date = "2026-06-07"
+compatibility_date = "2025-01-01"
 
 [vars]
 COMPANION_URL = "https://companion.tsub4sa.xyz"
 API_PROXY_UPSTREAM = "https://invidious.tsub4sa.xyz"
-
-[assets]
-directory = "./dist/"
-binding = "ASSETS"
-not_found_handling = "single-page-application"

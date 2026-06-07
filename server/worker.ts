@@ -1,9 +1,4 @@
-type AssetsBinding = {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-};
-
 type WorkerEnv = {
-  ASSETS?: AssetsBinding;
   COMPANION_URL?: string;
   COMPANION_SECRET?: string;
   API_PROXY_UPSTREAM?: string;
@@ -25,7 +20,7 @@ type TvSession = {
 };
 
 const PRIMARY_COMPANION_URL = "https://companion.tsub4sa.xyz";
-const FALLBACK_COMPANION_URL = "https://companion.tsub4sa.xyz";
+const FALLBACK_COMPANION_URL = "https://proxy.tsub4sa.xyz";
 const DEFAULT_API_PROXY_UPSTREAM = "https://invidious.tsub4sa.xyz";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 6;
 const tvSessions = new Map<string, TvSession>();
@@ -154,16 +149,9 @@ const isVideoPlaybackUrl = (url: URL): boolean => {
   return host.endsWith("googlevideo.com") || url.pathname.includes("/videoplayback");
 };
 
-const buildCompanionLatestVersionUrl = (companionUrl: string, videoId: string, sourceUrl: URL): string | null => {
-  const itag = (sourceUrl.searchParams.get("itag") || "").trim();
-  const normalizedVideoId = videoId.trim();
-  if (!normalizedVideoId || !itag) return null;
+const buildCompanionVideoPlaybackUrl = (companionUrl: string, sourceUrl: URL): string => {
   const base = companionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
-  const latestVersionUrl = new URL(`${base}/companion/latest_version`);
-  latestVersionUrl.searchParams.set("id", normalizedVideoId);
-  latestVersionUrl.searchParams.set("itag", itag);
-  latestVersionUrl.searchParams.set("local", "true");
-  return latestVersionUrl.toString();
+  return `${base}/companion/videoplayback${sourceUrl.search}`;
 };
 
 const handleYoutubeJsProxy = async (request: Request, companionUrl: string): Promise<Response> => {
@@ -179,10 +167,7 @@ const handleYoutubeJsProxy = async (request: Request, companionUrl: string): Pro
   }
   if (parsed.protocol !== "https:") return json({ error: "https_only" }, { status: 400 });
   if (isVideoPlaybackUrl(parsed)) {
-    const videoId = requestUrl.searchParams.get("videoId") || requestUrl.searchParams.get("v") || "";
-    const latestVersionUrl = buildCompanionLatestVersionUrl(companionUrl, videoId, parsed);
-    if (!latestVersionUrl) return json({ error: "video_id_and_itag_required_for_companion_latest_version" }, { status: 400 });
-    return Response.redirect(latestVersionUrl, 302);
+    return Response.redirect(buildCompanionVideoPlaybackUrl(companionUrl, parsed), 302);
   }
 
   const proxyCookie = (request.headers.get("x-ytjs-cookie") || "").trim();
@@ -261,11 +246,7 @@ export default {
       if (url.pathname === "/health") {
         response = json({ status: "ok", runtime: "cloudflare-worker" });
       } else if (url.pathname === "/companion/videoplayback") {
-        const videoId = url.searchParams.get("videoId") || url.searchParams.get("v") || url.searchParams.get("id") || "";
-        const latestVersionUrl = buildCompanionLatestVersionUrl(config.companionUrl, videoId, url);
-        response = latestVersionUrl
-          ? Response.redirect(latestVersionUrl, 302)
-          : json({ error: "video_id_and_itag_required_for_companion_latest_version" }, { status: 400 });
+        response = Response.redirect(buildCompanionVideoPlaybackUrl(config.companionUrl, url), 302);
       } else if (url.pathname.startsWith("/companion")) {
         const headers = config.companionSecret ? { authorization: `Bearer ${config.companionSecret}` } : undefined;
         response = await proxyToUpstream(request, config.companionUrl, "/companion", "/companion", headers);
@@ -274,7 +255,7 @@ export default {
       } else if (url.pathname === "/youtubejs-proxy") {
         response = await handleYoutubeJsProxy(request, config.companionUrl);
       } else {
-        response = (await handleTvSync(request, url.pathname)) ?? (env.ASSETS ? await env.ASSETS.fetch(request) : json({ error: "not_found" }, { status: 404 }));
+        response = (await handleTvSync(request, url.pathname)) ?? json({ error: "not_found" }, { status: 404 });
       }
     } catch {
       response = json({ error: "worker_handler_failed" }, { status: 500 });

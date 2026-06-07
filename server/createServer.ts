@@ -31,16 +31,9 @@ const isVideoPlaybackUrl = (url: URL): boolean => {
   const host = url.hostname.toLowerCase();
   return host.endsWith("googlevideo.com") || url.pathname.includes("/videoplayback");
 };
-const buildCompanionLatestVersionUrl = (companionUrl: string, videoId: string, sourceUrl: URL): string | null => {
-  const itag = (sourceUrl.searchParams.get("itag") || "").trim();
-  const normalizedVideoId = videoId.trim();
-  if (!normalizedVideoId || !itag) return null;
+const buildCompanionVideoPlaybackUrl = (companionUrl: string, sourceUrl: URL): string => {
   const base = companionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
-  const latestVersionUrl = new URL(`${base}/companion/latest_version`);
-  latestVersionUrl.searchParams.set("id", normalizedVideoId);
-  latestVersionUrl.searchParams.set("itag", itag);
-  latestVersionUrl.searchParams.set("local", "true");
-  return latestVersionUrl.toString();
+  return `${base}/companion/videoplayback${sourceUrl.search}`;
 };
 
 export const createProxyServer = (config: ProxyServerConfig): FastifyInstance => {
@@ -74,10 +67,7 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
 
   fastify.get("/companion/videoplayback", async (request, reply) => {
     const sourceUrl = new URL(request.url, "http://127.0.0.1");
-    const videoId = sourceUrl.searchParams.get("videoId") || sourceUrl.searchParams.get("v") || sourceUrl.searchParams.get("id") || "";
-    const latestVersionUrl = buildCompanionLatestVersionUrl(config.companionUrl, videoId, sourceUrl);
-    if (!latestVersionUrl) return reply.code(400).send({ error: "video_id_and_itag_required_for_companion_latest_version" });
-    return reply.code(302).header("Location", latestVersionUrl).send();
+    return reply.code(302).header("Location", buildCompanionVideoPlaybackUrl(config.companionUrl, sourceUrl)).send();
   });
 
   fastify.register(proxy, {
@@ -115,11 +105,7 @@ export const createProxyServer = (config: ProxyServerConfig): FastifyInstance =>
     }
     if (parsed.protocol !== "https:") return reply.code(400).send({ error: "https_only" });
     if (isVideoPlaybackUrl(parsed)) {
-      const requestUrl = new URL(request.url, "http://127.0.0.1");
-      const videoId = requestUrl.searchParams.get("videoId") || requestUrl.searchParams.get("v") || "";
-      const latestVersionUrl = buildCompanionLatestVersionUrl(config.companionUrl, videoId, parsed);
-      if (!latestVersionUrl) return reply.code(400).send({ error: "video_id_and_itag_required_for_companion_latest_version" });
-      return reply.code(302).header("Location", latestVersionUrl).send();
+      return reply.code(302).header("Location", buildCompanionVideoPlaybackUrl(config.companionUrl, parsed)).send();
     }
 
     const buildForwardBody = (): unknown => {

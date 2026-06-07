@@ -430,11 +430,11 @@ export const VideoPlayer = ({
       pickPlayableStream(
         video.formatStreams?.map((item) => ({
           ...item,
-          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, effectiveCompanionUrl, video.videoId), baseUrl),
+          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : ""), baseUrl),
         })),
         { quality, dataSaver, audioOnly },
       ),
-    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, effectiveCompanionUrl, video.videoId],
+    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl],
   );
 
   const dashUrl = useMemo(() => {

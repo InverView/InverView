@@ -15,27 +15,16 @@ export const isVideoPlaybackUrl = (url: string | undefined): boolean => {
   }
 };
 
-export const resolveCompanionVideoPlaybackUrl = (
-  url: string | undefined,
-  companionUrl: string,
-  videoId?: string,
-): string => {
+export const resolveCompanionVideoPlaybackUrl = (url: string | undefined, companionUrl: string): string => {
   if (!url) return "";
   const trimmedCompanionUrl = companionUrl.trim();
-  const trimmedVideoId = (videoId || "").trim();
-  if (!trimmedCompanionUrl || !trimmedVideoId || !isVideoPlaybackUrl(url)) return url;
+  if (!trimmedCompanionUrl || !isVideoPlaybackUrl(url)) return url;
 
   try {
     const parsed = new URL(url);
-    const itag = (parsed.searchParams.get("itag") || "").trim();
-    if (!itag) return url;
     const companionBase = trimmedCompanionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
-    const searchParams = new URLSearchParams({
-      id: trimmedVideoId,
-      itag,
-      local: "true",
-    });
-    return `${companionBase}/companion/latest_version?${searchParams.toString()}`;
+    const prefix = companionBase || "";
+    return `${prefix}/companion/videoplayback${parsed.search}`;
   } catch {
     return url;
   }

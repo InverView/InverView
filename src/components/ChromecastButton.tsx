@@ -53,11 +53,11 @@ export const ChromecastButton = ({
       pickPlayableStream(
         video.formatStreams?.map((item) => ({
           ...item,
-          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : "", video.videoId), baseUrl),
+          url: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : ""), baseUrl),
         })),
         { quality, dataSaver, audioOnly },
       ),
-    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl, video.videoId],
+    [video.formatStreams, baseUrl, quality, dataSaver, audioOnly, useProxyVideo, companionUrl],
   );
 
   const castCandidates = useMemo<Array<{ url: string; kind: MediaSourceKind }>>(() => {
@@ -75,7 +75,7 @@ export const ChromecastButton = ({
 
     const resolvedStreams = (video.formatStreams ?? []).map((item) => ({
       ...item,
-      resolvedUrl: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : "", video.videoId), baseUrl),
+      resolvedUrl: resolveMediaUrl(resolveCompanionVideoPlaybackUrl(item.url, useProxyVideo ? companionUrl : ""), baseUrl),
       containerLower: (item.container ?? "").toLowerCase(),
       typeLower: (item.type ?? "").toLowerCase(),
     }));
@@ -87,7 +87,7 @@ export const ChromecastButton = ({
     if (stream?.url) pushUnique(stream.url, "stream");
 
     return candidates;
-  }, [video.dashUrl, video.hlsUrl, video.formatStreams, baseUrl, stream, useProxyVideo, companionUrl, video.videoId]);
+  }, [video.dashUrl, video.hlsUrl, video.formatStreams, baseUrl, stream, useProxyVideo, companionUrl]);
   const mediaUrl = castCandidates[0]?.url ?? "";
   const initialTvSessionId = useMemo(() => {
     if (typeof window === "undefined") return "";
