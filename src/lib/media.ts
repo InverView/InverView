@@ -4,6 +4,32 @@ import type { QualityMode } from "../store/settingsStore";
 const ABSOLUTE_URL_RE = /^https?:\/\//i;
 const normalizeBase = (baseUrl: string): string => baseUrl.replace(/\/+$/, "");
 
+export const isVideoPlaybackUrl = (url: string | undefined): boolean => {
+  if (!url) return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return host.endsWith("googlevideo.com") || parsed.pathname.includes("/videoplayback");
+  } catch {
+    return url.includes("/videoplayback");
+  }
+};
+
+export const resolveCompanionVideoPlaybackUrl = (url: string | undefined, companionUrl: string): string => {
+  if (!url) return "";
+  const trimmedCompanionUrl = companionUrl.trim();
+  if (!trimmedCompanionUrl || !isVideoPlaybackUrl(url)) return url;
+
+  try {
+    const parsed = new URL(url);
+    const companionBase = trimmedCompanionUrl.replace(/\/+$/, "").replace(/\/companion$/, "");
+    const prefix = companionBase || "";
+    return `${prefix}/companion/videoplayback${parsed.search}`;
+  } catch {
+    return url;
+  }
+};
+
 export const resolveMediaUrl = (url: string | undefined, baseUrl: string): string => {
   if (!url) return "";
 

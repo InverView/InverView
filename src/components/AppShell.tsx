@@ -26,11 +26,6 @@ const useStyles = makeStyles({
     flexShrink: 0,
     zIndex: 110,
   },
-  headerAreaHiddenOnMobileWatch: {
-    "@media (max-width: 767px)": {
-      display: "none",
-    },
-  },
   body: {
     display: "flex",
     flexGrow: 1,
@@ -459,17 +454,20 @@ export const AppShell = (): JSX.Element => {
       )}
 
       {!isTvRoute && (
-        <div
-          className={mergeClasses(
-            styles.headerArea,
-            isWatchRoute && styles.headerAreaHiddenOnMobileWatch,
-          )}
-        >
+        <div className={styles.headerArea}>
           <Header />
           <MobileHeader
             onOpenMenu={() => setIsMenuOpen(true)}
             onOpenSearch={() => setIsSearchOpen(true)}
             showHomeTitle={location.pathname === "/"}
+            backButton={isWatchRoute}
+            onBack={() => {
+              if (window.history.length > 1) {
+                navigate(-1);
+                return;
+              }
+              navigate("/");
+            }}
           />
         </div>
       )}

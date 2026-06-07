@@ -282,6 +282,8 @@ export const SettingsPage = (): JSX.Element => {
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [activeTab, setActiveTab] = useState("general");
+  const defaultLastFmApiKey = import.meta.env.VITE_LASTFM_API_KEY || "";
+  const defaultLastFmApiSecret = import.meta.env.VITE_LASTFM_API_SECRET || "";
 
   useEffect(() => {
     const handleResize = () => {
@@ -338,13 +340,15 @@ export const SettingsPage = (): JSX.Element => {
       shouldSkipHistoryBackRef.current = true;
     }
     if (token && isLastFmCallback) {
-      if (!settings.lastFmApiKey.trim() || !settings.lastFmApiSecret.trim()) {
+      const apiKey = settings.lastFmApiKey.trim() || defaultLastFmApiKey.trim();
+      const apiSecret = settings.lastFmApiSecret.trim() || defaultLastFmApiSecret.trim();
+      if (!apiKey || !apiSecret) {
         openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmCredentialsRequired"));
         const cleanUrl = window.location.pathname + window.location.hash;
         window.history.replaceState({}, document.title, cleanUrl);
         return;
       }
-      void getLastFmSessionFromToken(settings.lastFmApiKey, settings.lastFmApiSecret, token)
+      void getLastFmSessionFromToken(apiKey, apiSecret, token)
         .then(({ username, sessionKey }) => {
           setSetting("lastFmUsername", username);
           setSetting("lastFmSessionKey", sessionKey);
@@ -408,12 +412,13 @@ export const SettingsPage = (): JSX.Element => {
   };
 
   const openLastFmAuth = (): void => {
-    if (!settings.lastFmApiKey.trim()) {
+    const apiKey = settings.lastFmApiKey.trim() || defaultLastFmApiKey.trim();
+    if (!apiKey) {
       openNoticeDialog(t("settings.lastFmAuthErrorTitle"), t("settings.lastFmApiKeyRequired"));
       return;
     }
     const callback = `${window.location.origin}${window.location.pathname}?settings=1&lastfm=1`;
-    const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(settings.lastFmApiKey.trim())}&cb=${encodeURIComponent(callback)}`;
+    const authUrl = `https://www.last.fm/api/auth/?api_key=${encodeURIComponent(apiKey)}&cb=${encodeURIComponent(callback)}`;
     void openExternalUrl(authUrl);
   };
 
@@ -443,8 +448,6 @@ export const SettingsPage = (): JSX.Element => {
     }
     navigate("/");
   };
-  const defaultLastFmApiKey = import.meta.env.VITE_LASTFM_API_KEY || "";
-  const defaultLastFmApiSecret = import.meta.env.VITE_LASTFM_API_SECRET || "";
 
   return (
     <Dialog open onOpenChange={(_, data) => { if (!data.open) closeSettingsOverlay(); }}>
@@ -829,7 +832,7 @@ export const SettingsPage = (): JSX.Element => {
                       </Button>
                     </div>
                     <Caption1 className={styles.helperText}>
-                      {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyMissing")}
+                      {defaultLastFmApiKey ? t("settings.lastFmDefaultApiKeyDetected") : t("settings.lastFmDefaultApiKeyOptional")}
                     </Caption1>
                   </div>
                   <div className={styles.field}>
@@ -851,7 +854,7 @@ export const SettingsPage = (): JSX.Element => {
                       </Button>
                     </div>
                     <Caption1 className={styles.helperText}>
-                      {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretMissing")}
+                      {defaultLastFmApiSecret ? t("settings.lastFmDefaultApiSecretDetected") : t("settings.lastFmDefaultApiSecretOptional")}
                     </Caption1>
                   </div>
                   <div className={styles.field}>
