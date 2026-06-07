@@ -13,7 +13,7 @@ const electronProxyBaseUrl = import.meta.env.VITE_ELECTRON_LOCAL_PROXY_BASE_URL 
 const capacitorProxyBaseUrl = import.meta.env.VITE_CAPACITOR_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
 const webLocalProxyBaseUrl = import.meta.env.VITE_WEB_LOCAL_PROXY_BASE_URL || "http://127.0.0.1:8282";
 const primaryCompanionUrl = "https://companion.tsub4sa.xyz";
-const fallbackCompanionUrl = "https://proxy.tsub4sa.xyz";
+const fallbackCompanionUrl = "https://companion.tsub4sa.xyz";
 const firstNonEmpty = (...values: Array<string | undefined>): string => {
   for (const value of values) {
     if (typeof value === "string" && value.trim()) return value.trim();
