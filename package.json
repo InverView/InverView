@@ -18,8 +18,8 @@
     "test:watch": "vitest",
     "preview": "vite preview",
     "server": "tsx server/index.ts",
-    "worker:dev": "npm run build && npx wrangler dev",
-    "worker:deploy": "npm run build && npx wrangler deploy"
+    "worker:dev": "npx wrangler dev server/worker.ts",
+    "worker:deploy": "npx wrangler deploy server/worker.ts"
   },
   "dependencies": {
     "@capacitor/action-sheet": "^8.1.1",

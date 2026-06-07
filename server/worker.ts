@@ -1,9 +1,4 @@
-type AssetsBinding = {
-  fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response>;
-};
-
 type WorkerEnv = {
-  ASSETS?: AssetsBinding;
   COMPANION_URL?: string;
   COMPANION_SECRET?: string;
   API_PROXY_UPSTREAM?: string;
@@ -260,7 +255,7 @@ export default {
       } else if (url.pathname === "/youtubejs-proxy") {
         response = await handleYoutubeJsProxy(request, config.companionUrl);
       } else {
-        response = (await handleTvSync(request, url.pathname)) ?? (env.ASSETS ? await env.ASSETS.fetch(request) : json({ error: "not_found" }, { status: 404 }));
+        response = (await handleTvSync(request, url.pathname)) ?? json({ error: "not_found" }, { status: 404 });
       }
     } catch {
       response = json({ error: "worker_handler_failed" }, { status: 500 });
