@@ -1,4 +1,4 @@
-name = "inverview-server"
+name = "inverview"
 main = "server/worker.ts"
 compatibility_date = "2025-01-01"
 
