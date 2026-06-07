@@ -195,6 +195,7 @@ const VideoCardBase = ({
     [fallbackAvatarQuery.data?.authorThumbnails],
   );
   const avatarSrc = resolveMediaUrl(authorThumbnail?.url || fallbackAuthorThumbnail?.url, baseUrl) || undefined;
+  const actionSlot = action === false || action === true || action == null ? undefined : action;
 
   const handleNavigate = useCallback(() => {
     if (!resolvedVideoId) return; // IDがない場合は遷移しない
@@ -291,7 +292,7 @@ const VideoCardBase = ({
               </Caption1>
             </div>
           }
-          action={action}
+          action={actionSlot}
         />
       ) : (
         <div className={styles.body}>
@@ -335,7 +336,7 @@ const VideoCardBase = ({
               </div>
             }
             action={
-              action || (
+              actionSlot ?? (
                 <Menu positioning="below-end">
                   <MenuTrigger disableButtonEnhancement>
                     <Button

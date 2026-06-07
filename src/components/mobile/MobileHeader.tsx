@@ -1,5 +1,6 @@
 import { Hamburger, Button, Tooltip, makeStyles, tokens } from "@fluentui/react-components";
 import {
+  ArrowLeft24Regular,
   Search24Regular,
   Search24Filled,
   bundleIcon,
@@ -10,6 +11,8 @@ interface MobileHeaderProps {
   onOpenMenu: () => void;
   onOpenSearch: () => void;
   showHomeTitle?: boolean;
+  backButton?: boolean;
+  onBack?: () => void;
 }
 
 const SearchIcon = bundleIcon(Search24Filled, Search24Regular);
@@ -64,7 +67,8 @@ const useStyles = makeStyles({
 export const MobileHeader = ({
   onOpenMenu,
   onOpenSearch,
-  showHomeTitle: _showHomeTitle = false,
+  backButton = false,
+  onBack,
 }: MobileHeaderProps): JSX.Element => {
   const styles = useStyles();
   const { t } = useTranslation();
@@ -73,9 +77,15 @@ export const MobileHeader = ({
     <header className={styles.header}>
       <div className={styles.container}>
         <div className={styles.leftActions}>
-          <Tooltip content={t("mobile.menu")} relationship="label">
-            <Hamburger onClick={onOpenMenu} />
-          </Tooltip>
+          {backButton ? (
+            <Tooltip content={t("common.back")} relationship="label">
+              <Button icon={<ArrowLeft24Regular />} appearance="subtle" onClick={onBack} />
+            </Tooltip>
+          ) : (
+            <Tooltip content={t("mobile.menu")} relationship="label">
+              <Hamburger onClick={onOpenMenu} />
+            </Tooltip>
+          )}
         </div>
         <div className={styles.rightActions}>
           <Tooltip content={t("mobile.search")} relationship="label">
