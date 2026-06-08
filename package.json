@@ -48,7 +48,7 @@
     "@fastify/cors": "^11.2.0",
     "@fastify/http-proxy": "^11.4.4",
     "@fluentui/react": "^8.125.5",
-    "@fluentui/react-components": "^9.73.8",
+    "@fluentui/react-components": "^9.74.1",
     "@fluentui/react-icons": "^2.0.325",
     "@hookform/resolvers": "^5.2.2",
     "@sentry/react": "^10.52.0",
