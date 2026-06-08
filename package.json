@@ -61,7 +61,7 @@
     "cookies.js": "^2.1.15",
     "date-fns": "^4.3.0",
     "dexie": "^4.4.3",
-    "dompurify": "^3.4.2",
+    "dompurify": "^3.4.8",
     "dotenv": "^17.4.2",
     "fastify": "^5.8.5",
     "framer-motion": "^12.40.0",
